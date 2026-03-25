@@ -1,0 +1,174 @@
+'use client';
+import { usePlayerStore } from '../../../store/player-store';
+import { useWorldStore } from '../../../store/world-store';
+import { MIN_RESERVE_RATIO } from '@argentum/shared';
+
+function Gold({ amount }: { amount: number }) {
+  const formatted = amount >= 1000
+    ? `${(amount / 1000).toFixed(1)}k`
+    : amount.toFixed(0);
+  return <span className="font-mono text-gold-400">{formatted}g</span>;
+}
+
+function Row({ label, value, highlight }: { label: string; value: React.ReactNode; highlight?: boolean }) {
+  return (
+    <div className={`flex justify-between py-2 border-b border-ink-700 ${highlight ? 'text-danger-400' : ''}`}>
+      <span className="text-parch-200 text-sm">{label}</span>
+      <span className="font-medium">{value}</span>
+    </div>
+  );
+}
+
+export default function DashboardPage() {
+  const player = usePlayerStore(s => s.player);
+  const bs     = usePlayerStore(s => s.balanceSheet);
+  const loans  = usePlayerStore(s => s.loans);
+  const deps   = usePlayerStore(s => s.deposits);
+  const clock  = useWorldStore(s => s.clock);
+
+  if (!player || !bs) {
+    return (
+      <div className="p-8 text-parch-200">Connecting to the world...</div>
+    );
+  }
+
+  const reserveLow = bs.reserve_ratio < MIN_RESERVE_RATIO;
+  const activeLoans = loans.filter(l => l.status === 'active');
+  const defaultedCount = loans.filter(l => l.status === 'defaulted').length;
+  const totalDeposits = deps.reduce((acc, d) => acc + d.balance, 0);
+
+  return (
+    <div className="p-6 max-w-4xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-2xl font-bold text-gold-400">{player.bank_name}</h2>
+          <p className="text-parch-200 text-sm">
+            {player.username} •{' '}
+            {clock && `${clock.current_season.charAt(0).toUpperCase() + clock.current_season.slice(1)}, Year ${clock.current_year}, Tick ${clock.current_tick}`}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-parch-200">Reputation</p>
+          <div className="flex items-center gap-1 justify-end">
+            <div className="h-2 w-20 bg-ink-700 rounded overflow-hidden">
+              <div className="h-full bg-gold-400" style={{ width: `${player.reputation}%` }} />
+            </div>
+            <span className="text-xs text-gold-400">{player.reputation.toFixed(0)}</span>
+          </div>
+        </div>
+      </div>
+
+      {reserveLow && (
+        <div className="bg-danger-500 border border-danger-400 rounded p-3 mb-4 text-sm">
+          ⚠ Reserve ratio critical ({(bs.reserve_ratio * 100).toFixed(1)}%) — minimum is {(MIN_RESERVE_RATIO * 100).toFixed(0)}%.
+          Citizens may begin withdrawing deposits.
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Assets */}
+        <div className="bg-ink-700 border border-gold-600 rounded-lg p-4">
+          <h3 className="text-gold-400 font-semibold mb-3">Assets</h3>
+          <Row label="Cash Reserves"    value={<Gold amount={bs.cash} />} />
+          <Row label="Active Loans"     value={<Gold amount={bs.total_loan_book} />} />
+          <Row label="Investments"      value={<Gold amount={bs.total_investments} />} />
+          <div className="flex justify-between py-2 mt-1 font-bold">
+            <span className="text-parch-100">Total Assets</span>
+            <Gold amount={bs.cash + bs.total_loan_book + bs.total_investments} />
+          </div>
+        </div>
+
+        {/* Liabilities & Equity */}
+        <div className="bg-ink-700 border border-gold-600 rounded-lg p-4">
+          <h3 className="text-gold-400 font-semibold mb-3">Liabilities & Equity</h3>
+          <Row label="Deposits Owed"     value={<Gold amount={bs.total_deposits_owed} />} />
+          <Row label="Interest Accrued"  value={<Gold amount={bs.total_interest_accrued} />} />
+          <div className="flex justify-between py-2 mt-1 font-bold">
+            <span className="text-parch-100">Net Equity</span>
+            <span className={bs.equity >= 0 ? 'text-safe-400 font-mono' : 'text-danger-400 font-mono'}>
+              {bs.equity >= 0 ? '' : '-'}{Math.abs(bs.equity).toFixed(0)}g
+            </span>
+          </div>
+        </div>
+
+        {/* Portfolio */}
+        <div className="bg-ink-700 border border-gold-600 rounded-lg p-4">
+          <h3 className="text-gold-400 font-semibold mb-3">Portfolio</h3>
+          <Row label="Active Loans"      value={<span className="font-mono text-parch-100">{activeLoans.length}</span>} />
+          <Row label="Defaulted Loans"   value={<span className={`font-mono ${defaultedCount > 0 ? 'text-danger-400' : 'text-parch-100'}`}>{defaultedCount}</span>} />
+          <Row label="Deposit Positions" value={<span className="font-mono text-parch-100">{deps.filter(d => d.balance > 0).length}</span>} />
+          <Row label="Total Deposits"    value={<Gold amount={totalDeposits} />} />
+        </div>
+
+        {/* Ratios */}
+        <div className="bg-ink-700 border border-gold-600 rounded-lg p-4">
+          <h3 className="text-gold-400 font-semibold mb-3">Key Ratios</h3>
+          <Row
+            label="Reserve Ratio"
+            value={<span className={reserveLow ? 'text-danger-400 font-mono' : 'text-safe-400 font-mono'}>{(bs.reserve_ratio * 100).toFixed(1)}%</span>}
+            highlight={reserveLow}
+          />
+          <Row
+            label="Equity / Assets"
+            value={
+              <span className="font-mono text-parch-100">
+                {bs.total_loan_book + bs.cash + bs.total_investments > 0
+                  ? ((bs.equity / (bs.cash + bs.total_loan_book + bs.total_investments)) * 100).toFixed(1) + '%'
+                  : '—'}
+              </span>
+            }
+          />
+          <Row
+            label="Loan Book / Assets"
+            value={
+              <span className="font-mono text-parch-100">
+                {bs.cash + bs.total_loan_book + bs.total_investments > 0
+                  ? ((bs.total_loan_book / (bs.cash + bs.total_loan_book + bs.total_investments)) * 100).toFixed(1) + '%'
+                  : '—'}
+              </span>
+            }
+          />
+        </div>
+      </div>
+
+      {/* Active Loans Table */}
+      {activeLoans.length > 0 && (
+        <div className="mt-6 bg-ink-700 border border-gold-600 rounded-lg p-4">
+          <h3 className="text-gold-400 font-semibold mb-3">Active Loans ({activeLoans.length})</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-parch-200 border-b border-ink-600">
+                  <th className="text-left pb-2">Borrower</th>
+                  <th className="text-left pb-2">Town</th>
+                  <th className="text-right pb-2">Balance</th>
+                  <th className="text-right pb-2">Rate</th>
+                  <th className="text-right pb-2">Progress</th>
+                  <th className="text-right pb-2">Default Risk</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeLoans.map(loan => {
+                  const progress = Math.round((loan.ticks_elapsed / loan.term_ticks) * 100);
+                  const riskPct  = (loan.default_probability_per_tick * 360 * 100).toFixed(1);
+                  return (
+                    <tr key={loan.id} className="border-b border-ink-700 hover:bg-ink-600">
+                      <td className="py-2">{loan.borrower_name}</td>
+                      <td className="py-2 text-parch-200">{loan.town_id.replace('town_', '')}</td>
+                      <td className="py-2 text-right"><Gold amount={loan.outstanding_balance} /></td>
+                      <td className="py-2 text-right font-mono">{(loan.interest_rate * 100).toFixed(1)}%</td>
+                      <td className="py-2 text-right font-mono">{progress}%</td>
+                      <td className={`py-2 text-right font-mono ${parseFloat(riskPct) > 20 ? 'text-danger-400' : 'text-parch-200'}`}>
+                        ~{riskPct}%/yr
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

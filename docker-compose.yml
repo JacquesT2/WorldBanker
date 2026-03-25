@@ -1,0 +1,22 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: argentum_postgres
+    environment:
+      POSTGRES_USER: argentum
+      POSTGRES_PASSWORD: argentum_dev
+      POSTGRES_DB: argentum
+    ports:
+      - "5433:5432"
+    volumes:
+      - argentum_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U argentum -d argentum"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  argentum_pgdata:
