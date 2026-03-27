@@ -57,17 +57,22 @@ export interface Deposit {
   last_interest_accrual_tick: number;
 }
 
-export interface InfrastructureInvestment {
+export type SectorInvestmentType = 'military' | 'heavy_industry' | 'construction' | 'commerce' | 'maritime' | 'agriculture';
+
+export interface SectorInvestment {
   id: string;
   player_id: string;
   town_id: string;
-  infra_type: 'roads' | 'port' | 'granary' | 'walls' | 'market';
+  sector_type: SectorInvestmentType;
   amount_invested: number;
   completion_tick: number;
   completed: boolean;
   annual_return_rate: number;
   reputation_bonus: number;
 }
+
+/** @deprecated use SectorInvestment */
+export type InfrastructureInvestment = SectorInvestment;
 
 export interface BalanceSheet {
   player_id: string;

@@ -32,14 +32,14 @@ function GameShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-56 bg-ink-700 border-r border-gold-600 flex flex-col shrink-0">
-        <div className="p-4 border-b border-gold-600">
+      <aside className="w-56 bg-parch-200 border-r border-parch-300 flex flex-col shrink-0">
+        <div className="p-4 border-b border-parch-300">
           <h1 className="text-xl font-bold text-gold-400">Argentum</h1>
           {player && (
-            <p className="text-xs text-parch-200 mt-1 truncate">{player.bank_name}</p>
+            <p className="text-xs text-ink-700 mt-1 truncate">{player.bank_name}</p>
           )}
           {clock && (
-            <p className="text-xs text-parch-200 mt-1 capitalize">
+            <p className="text-xs text-ink-700 mt-1 capitalize">
               {clock.current_season} — Year {clock.current_year}
             </p>
           )}
@@ -52,8 +52,8 @@ function GameShell({ children }: { children: React.ReactNode }) {
               href={item.href}
               className={`flex items-center gap-2 px-3 py-2 rounded text-sm transition-colors ${
                 pathname === item.href
-                  ? 'bg-gold-600 text-ink-800 font-medium'
-                  : 'text-parch-200 hover:bg-ink-800 hover:text-parch-100'
+                  ? 'bg-gold-600 text-parch-50 font-medium'
+                  : 'text-ink-700 hover:bg-parch-300 hover:text-ink-800'
               }`}
             >
               <span>{item.icon}</span>
@@ -64,9 +64,9 @@ function GameShell({ children }: { children: React.ReactNode }) {
 
         {/* Reserve ratio indicator */}
         {bs && (
-          <div className="p-4 border-t border-gold-600">
-            <p className="text-xs text-parch-200 mb-1">Reserve Ratio</p>
-            <div className="h-2 bg-ink-800 rounded overflow-hidden">
+          <div className="p-4 border-t border-parch-300">
+            <p className="text-xs text-ink-700 mb-1">Reserve Ratio</p>
+            <div className="h-2 bg-parch-300 rounded overflow-hidden">
               <div
                 className={`h-full transition-all ${
                   bs.reserve_ratio >= 0.10
@@ -76,7 +76,7 @@ function GameShell({ children }: { children: React.ReactNode }) {
                 style={{ width: `${Math.min(bs.reserve_ratio * 100 * 5, 100)}%` }}
               />
             </div>
-            <p className={`text-xs mt-1 ${bs.reserve_ratio < 0.10 ? 'text-danger-400' : 'text-parch-200'}`}>
+            <p className={`text-xs mt-1 ${bs.reserve_ratio < 0.10 ? 'text-danger-400' : 'text-ink-700'}`}>
               {(bs.reserve_ratio * 100).toFixed(1)}%
               {bs.reserve_ratio < 0.10 && ' ⚠ CRITICAL'}
             </p>
@@ -85,7 +85,7 @@ function GameShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto bg-ink-800">
+      <main className="flex-1 overflow-y-auto bg-parch-100">
         {children}
       </main>
 
@@ -95,9 +95,9 @@ function GameShell({ children }: { children: React.ReactNode }) {
           <div
             key={n.id}
             className={`flex items-start gap-2 px-4 py-3 rounded border text-sm ${
-              n.type === 'danger'  ? 'bg-danger-500 border-danger-400 text-white' :
-              n.type === 'warning' ? 'bg-gold-500 border-gold-400 text-ink-800' :
-                                     'bg-ink-700 border-gold-600 text-parch-100'
+              n.type === 'danger'  ? 'bg-danger-500 border-danger-400 text-parch-50' :
+              n.type === 'warning' ? 'bg-gold-500 border-gold-400 text-parch-50' :
+                                     'bg-parch-50 border-parch-300 text-ink-800'
             }`}
           >
             <span className="flex-1">{n.message}</span>

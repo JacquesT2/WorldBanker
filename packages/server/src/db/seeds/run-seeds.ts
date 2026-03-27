@@ -41,22 +41,25 @@ async function seed(): Promise<void> {
 
     // Insert towns
     for (const town of TOWNS) {
+      const s = town.sectors;
       const output = town.population * town.wealth_per_capita *
-        (1 + town.infrastructure.roads * 0.04 + town.infrastructure.port * 0.06 +
-             town.infrastructure.granary * 0.03 + town.infrastructure.market * 0.05 +
-             town.infrastructure.walls * 0.01);
+        (1 + s.military * 0.01 + s.heavy_industry * 0.05 + s.construction * 0.04 +
+             s.commerce * 0.06 + s.maritime * 0.07 + s.agriculture * 0.04);
 
       await client.query(
         `INSERT INTO towns
            (id, world_id, region_id, name, population, wealth_per_capita, economic_output,
-            resources, infra_roads, infra_port, infra_granary, infra_walls, infra_market,
+            resources,
+            sector_military, sector_heavy_industry, sector_construction,
+            sector_commerce, sector_maritime, sector_agriculture,
             risk_factors, is_regional_capital, x_coord, y_coord)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
         [
           town.id, worldId, town.region_id, town.name,
           town.population, town.wealth_per_capita, output,
-          town.resources, town.infrastructure.roads, town.infrastructure.port,
-          town.infrastructure.granary, town.infrastructure.walls, town.infrastructure.market,
+          town.resources,
+          s.military, s.heavy_industry, s.construction,
+          s.commerce, s.maritime, s.agriculture,
           town.risk_factors, town.is_regional_capital, town.x_coord, town.y_coord,
         ]
       );

@@ -5,11 +5,11 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        gold:   { 400: '#f5c842', 500: '#d4a017', 600: '#b8860b' },
-        parch:  { 50: '#fdf8ec', 100: '#f9efce', 200: '#f0d98a' },
-        ink:    { 700: '#2c1a0e', 800: '#1a0e07', 900: '#0d0703' },
-        danger: { 400: '#e85d4a', 500: '#c94030' },
-        safe:   { 400: '#5dba7e', 500: '#3d9a60' },
+        gold:   { 400: '#9a7018', 500: '#7a5410', 600: '#5a3c08' },
+        parch:  { 50: '#fefcf5', 100: '#f5e8c8', 200: '#e0cfa0', 300: '#c4a870' },
+        ink:    { 700: '#5a3818', 800: '#3a2010', 900: '#1a0a04' },
+        danger: { 400: '#963020', 500: '#742418' },
+        safe:   { 400: '#2a6840', 500: '#1e5030' },
       },
       fontFamily: {
         serif: ['Georgia', 'Cambria', 'Times New Roman', 'serif'],

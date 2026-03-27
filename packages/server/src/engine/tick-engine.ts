@@ -9,6 +9,7 @@ import { processLoans } from './loan-processor';
 import { processDeposits } from './deposit-processor';
 import { processInfrastructure } from './infrastructure-processor';
 import { updateBalanceSheets } from './balance-sheet-updater';
+import { executeBots } from './bot-executor';
 import { checkBankruptcy } from './bankruptcy-checker';
 import { updateLeaderboard } from './leaderboard-updater';
 import { buildTickDelta } from './delta-broadcaster';
@@ -93,6 +94,7 @@ export class TickEngine {
       { name: 'deposit-processor',       fn: () => processDeposits(this.state) },
       { name: 'infrastructure-processor',fn: () => processInfrastructure(this.state) },
       { name: 'balance-sheet-updater',   fn: () => updateBalanceSheets(this.state) },
+      { name: 'bot-executor',            fn: () => executeBots(this.state) },
       { name: 'bankruptcy-checker',      fn: () => {
         const b = checkBankruptcy(this.state);
         bankruptcyPlayerIds = b.map(x => x.player_id);
@@ -295,14 +297,14 @@ export class TickEngine {
         for (const town of state.towns.values()) {
           await pool.query(
             `UPDATE towns SET population = $1, economic_output = $2,
-               infra_roads = $3, infra_port = $4, infra_granary = $5,
-               infra_walls = $6, infra_market = $7
-             WHERE id = $8`,
+               sector_military = $3, sector_heavy_industry = $4, sector_construction = $5,
+               sector_commerce = $6, sector_maritime = $7, sector_agriculture = $8
+             WHERE id = $9`,
             [
               town.population, town.economic_output,
-              town.infrastructure.roads, town.infrastructure.port,
-              town.infrastructure.granary, town.infrastructure.walls,
-              town.infrastructure.market, town.id,
+              town.sectors.military, town.sectors.heavy_industry, town.sectors.construction,
+              town.sectors.commerce, town.sectors.maritime, town.sectors.agriculture,
+              town.id,
             ]
           );
         }

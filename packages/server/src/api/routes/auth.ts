@@ -86,6 +86,7 @@ export function createAuthRouter(state: WorldState) {
         reputation: REPUTATION_STARTING,
         starting_town_id,
         is_bankrupt: false,
+        is_bot: false,
         created_at: new Date().toISOString(),
       });
 

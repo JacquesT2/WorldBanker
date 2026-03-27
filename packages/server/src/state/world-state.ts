@@ -1,6 +1,6 @@
 import type {
   Town, Region, WorldEvent, TradeRoute,
-  Loan, Deposit, InfrastructureInvestment, BalanceSheet,
+  Loan, Deposit, SectorInvestment, BalanceSheet,
   LoanProposal, Player, BankingLicense, PlayerScore, WorldClock,
 } from '@argentum/shared';
 
@@ -50,7 +50,7 @@ export class WorldState {
   deposits: Map<string, Deposit> = new Map();
   playerDeposits: Map<string, string[]> = new Map();        // playerId -> depositIds
   townDeposits: Map<string, string[]> = new Map();          // townId -> depositIds
-  investments: Map<string, InfrastructureInvestment> = new Map();
+  investments: Map<string, SectorInvestment> = new Map();
   scores: Map<string, PlayerScore> = new Map();
 
   // Previous tick snapshot for delta computation

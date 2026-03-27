@@ -37,6 +37,7 @@ export function updateLeaderboard(state: WorldState): PlayerScore[] {
       player_id: player.id,
       username: player.username,
       bank_name: player.bank_name,
+      is_bot: player.is_bot,
       total_score,
       net_worth_score,
       portfolio_quality_score,

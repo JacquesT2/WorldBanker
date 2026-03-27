@@ -18,19 +18,21 @@ export function useSocket(): void {
 
     const onSnapshot = (snapshot: PlayerSnapshot) => {
       worldStore.hydrate({
-        towns:   snapshot.towns,
-        regions: snapshot.regions ?? [],
-        events:  snapshot.events,
-        clock:   snapshot.clock,
+        towns:       snapshot.towns,
+        regions:     snapshot.regions ?? [],
+        events:      snapshot.events,
+        clock:       snapshot.clock,
+        tradeRoutes: snapshot.trade_routes ?? [],
       });
       playerStore.hydrate({
-        player:       snapshot.player,
-        balanceSheet: snapshot.balance_sheet,
-        licenses:     snapshot.licenses,
-        loans:        snapshot.loans,
-        deposits:     snapshot.deposits,
-        proposals:    snapshot.loan_proposals,
-        leaderboard:  snapshot.leaderboard,
+        player:         snapshot.player,
+        balanceSheet:   snapshot.balance_sheet,
+        licenses:       snapshot.licenses,
+        loans:          snapshot.loans,
+        deposits:       snapshot.deposits,
+        proposals:      snapshot.loan_proposals,
+        leaderboard:    snapshot.leaderboard,
+        balanceHistory: snapshot.balance_history ?? [],
       });
       lastTickRef.current = snapshot.clock.current_tick;
     };

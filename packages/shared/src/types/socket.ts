@@ -3,6 +3,16 @@ import type { WorldEvent, Town } from './world.js';
 import type { Loan, Deposit, LoanProposal, BalanceSheet } from './banking.js';
 import type { Player, BankingLicense } from './player.js';
 
+export interface BalanceHistoryPoint {
+  tick: number;
+  cash: number;
+  total_loan_book: number;
+  total_deposits_owed: number;
+  total_interest_accrued: number;
+  equity: number;
+  reserve_ratio: number;
+}
+
 // Full player-specific snapshot (sent on connect)
 export interface PlayerSnapshot extends WorldSnapshot {
   player: Player;
@@ -10,6 +20,7 @@ export interface PlayerSnapshot extends WorldSnapshot {
   balance_sheet: BalanceSheet;
   loans: Loan[];
   deposits: Deposit[];
+  balance_history: BalanceHistoryPoint[];
 }
 
 // Server → Client

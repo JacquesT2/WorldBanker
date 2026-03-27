@@ -53,7 +53,7 @@ export function createSocketServer(
     socket.join(world_id);
 
     // Send full world snapshot to newly connected player
-    const snapshot = buildPlayerSnapshot(state, player_id);
+    const snapshot = await buildPlayerSnapshot(state, player_id);
     socket.emit('world:snapshot', snapshot);
 
     // Handle loan acceptance via WS (alternative to REST)
@@ -96,7 +96,7 @@ export function createSocketServer(
   return io;
 }
 
-function buildPlayerSnapshot(state: WorldState, player_id: string): PlayerSnapshot {
+async function buildPlayerSnapshot(state: WorldState, player_id: string): Promise<PlayerSnapshot> {
   const player = state.players.get(player_id)!;
   const bs     = state.balanceSheets.get(player_id);
   const licenses = state.licenses.get(player_id) ?? [];
@@ -119,17 +119,43 @@ function buildPlayerSnapshot(state: WorldState, player_id: string): PlayerSnapsh
     last_updated_tick: tick,
   };
 
+  const historyResult = await pool.query<{
+    tick: number; cash: string; total_loan_book: string;
+    total_deposits_owed: string; total_interest_accrued: string;
+    equity: string; reserve_ratio: string;
+  }>(
+    `SELECT tick, cash, total_loan_book, total_deposits_owed,
+            total_interest_accrued, equity, reserve_ratio
+     FROM player_balance_history
+     WHERE player_id = $1
+     ORDER BY tick ASC
+     LIMIT 720`,
+    [player_id],
+  ).catch(() => ({ rows: [] as any[] }));
+
+  const balance_history = historyResult.rows.map(r => ({
+    tick:                   Number(r.tick),
+    cash:                   Number(r.cash),
+    total_loan_book:        Number(r.total_loan_book),
+    total_deposits_owed:    Number(r.total_deposits_owed),
+    total_interest_accrued: Number(r.total_interest_accrued),
+    equity:                 Number(r.equity),
+    reserve_ratio:          Number(r.reserve_ratio),
+  }));
+
   return {
-    clock:          { ...state.clock },
-    towns:          Array.from(state.towns.values()),
-    regions:        Array.from(state.regions.values()),
-    events:         Array.from(state.events.values()).filter(e => e.ticks_remaining > 0),
-    loan_proposals: proposals,
-    leaderboard:    Array.from(state.scores.values()).sort((a, b) => a.rank - b.rank),
+    clock:           { ...state.clock },
+    towns:           Array.from(state.towns.values()),
+    regions:         Array.from(state.regions.values()),
+    events:          Array.from(state.events.values()).filter(e => e.ticks_remaining > 0),
+    loan_proposals:  proposals,
+    leaderboard:     Array.from(state.scores.values()).sort((a, b) => a.rank - b.rank),
     player,
     licenses,
-    balance_sheet:  balanceSheet,
-    loans:          state.getActiveLoansForPlayer(player_id),
-    deposits:       state.getDepositsForPlayer(player_id),
+    balance_sheet:   balanceSheet,
+    loans:           state.getActiveLoansForPlayer(player_id),
+    deposits:        state.getDepositsForPlayer(player_id),
+    trade_routes:    state.tradeRoutes,
+    balance_history,
   };
 }

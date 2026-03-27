@@ -7,6 +7,7 @@ import { loadWorldState } from './state/state-loader';
 import { createApiRouter } from './api/router';
 import { createSocketServer } from './socket/socket-server';
 import { TickEngine } from './engine/tick-engine';
+import { seedBots } from './db/seeds/seed-bots';
 
 async function main(): Promise<void> {
   console.log('[server] Starting Argentum Game Server...');
@@ -16,6 +17,9 @@ async function main(): Promise<void> {
 
   // Load world state into memory
   const state = await loadWorldState(pool);
+
+  // Create bot players for all strategy profiles (skips existing bots)
+  await seedBots(pool, state);
 
   // Create Express app
   const app = express();

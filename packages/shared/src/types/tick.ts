@@ -1,4 +1,4 @@
-import type { Town, Region, WorldEvent } from './world.js';
+import type { Town, Region, WorldEvent, TradeRoute } from './world.js';
 import type { BalanceSheet, LoanProposal } from './banking.js';
 import type { PlayerScore } from './player.js';
 
@@ -26,6 +26,7 @@ export interface PlayerDeltaUpdate {
   new_loan_default_ids: string[];
   new_loan_repayment_ids: string[];
   reputation_delta: number;
+  deposit_balances: Record<string, number>;  // town_id -> current balance
 }
 
 export interface LoanProposalUpdate {
@@ -51,4 +52,5 @@ export interface WorldSnapshot {
   events: WorldEvent[];
   loan_proposals: LoanProposal[];
   leaderboard: PlayerScore[];
+  trade_routes: TradeRoute[];
 }

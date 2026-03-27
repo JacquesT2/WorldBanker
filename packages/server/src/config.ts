@@ -12,7 +12,7 @@ function required(name: string): string {
 export const config = {
   databaseUrl: required('DATABASE_URL'),
   jwtSecret: required('JWT_SECRET'),
-  serverPort: parseInt(process.env['SERVER_PORT'] ?? '3001', 10),
+  serverPort: parseInt(process.env['PORT'] ?? process.env['SERVER_PORT'] ?? '3001', 10),
   nodeEnv: process.env['NODE_ENV'] ?? 'development',
   isDev: (process.env['NODE_ENV'] ?? 'development') === 'development',
 };

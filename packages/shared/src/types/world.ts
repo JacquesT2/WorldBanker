@@ -33,15 +33,16 @@ export type ResourceType =
   | 'silk' | 'salt' | 'livestock' | 'herbs' | 'gold_ore'
   | 'silver_ore' | 'copper' | 'obsidian' | 'peat' | 'pearls';
 
-export interface InfrastructureLevel {
-  roads: number;     // 0–5
-  port: number;      // 0–5
-  granary: number;   // 0–5
-  walls: number;     // 0–5
-  market: number;    // 0–5
+export interface TownSectors {
+  military:       number;  // 0–5  Fortifications, garrison, war power
+  heavy_industry: number;  // 0–5  Forges, mines, manufacturing
+  construction:   number;  // 0–5  Roads, civic works, housing
+  commerce:       number;  // 0–5  Markets, banking districts, trade
+  maritime:       number;  // 0–5  Ports, naval, fishing fleets
+  agriculture:    number;  // 0–5  Farms, granaries, irrigation
 }
 
-export type InfraType = keyof InfrastructureLevel;
+export type SectorType = keyof TownSectors;
 
 export type RiskFactor =
   | 'flood_prone'
@@ -65,7 +66,7 @@ export interface Town {
   wealth_per_capita: number;          // 10–500 gold
   economic_output: number;            // Derived: f(pop, wealth, infra, season, events)
   resources: ResourceType[];
-  infrastructure: InfrastructureLevel;
+  sectors: TownSectors;
   risk_factors: RiskFactor[];
   is_regional_capital: boolean;
   x_coord: number;                    // 0–100 normalized for SVG map
@@ -95,7 +96,10 @@ export type EventType =
   | 'poor_harvest'
   | 'resource_discovery'
   | 'political_crisis'
-  | 'migration_wave';
+  | 'migration_wave'
+  | 'war_declaration'
+  | 'siege'
+  | 'military_victory';
 
 export interface WorldEvent {
   id: string;

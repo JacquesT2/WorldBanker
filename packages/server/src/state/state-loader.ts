@@ -2,9 +2,9 @@ import { Pool } from 'pg';
 import { WorldState } from './world-state';
 import type {
   Town, Region, WorldEvent, TradeRoute,
-  Loan, Deposit, InfrastructureInvestment, BalanceSheet,
+  Loan, Deposit, SectorInvestment, BalanceSheet,
   LoanProposal, Player, BankingLicense, PlayerScore,
-  InfrastructureLevel,
+  TownSectors,
 } from '@argentum/shared';
 
 /**
@@ -48,8 +48,9 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
   const { rows: townRows } = await pool.query<{
     id: string; name: string; region_id: string;
     population: number; wealth_per_capita: string; economic_output: string;
-    resources: string[]; infra_roads: number; infra_port: number;
-    infra_granary: number; infra_walls: number; infra_market: number;
+    resources: string[];
+    sector_military: number; sector_heavy_industry: number; sector_construction: number;
+    sector_commerce: number; sector_maritime: number; sector_agriculture: number;
     risk_factors: string[]; is_regional_capital: boolean;
     x_coord: string; y_coord: string;
   }>('SELECT * FROM towns WHERE world_id = $1', [worldId]);
@@ -63,13 +64,14 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
       wealth_per_capita: parseFloat(t.wealth_per_capita),
       economic_output: parseFloat(t.economic_output),
       resources: t.resources as Town['resources'],
-      infrastructure: {
-        roads:   t.infra_roads,
-        port:    t.infra_port,
-        granary: t.infra_granary,
-        walls:   t.infra_walls,
-        market:  t.infra_market,
-      } as InfrastructureLevel,
+      sectors: {
+        military:       t.sector_military,
+        heavy_industry: t.sector_heavy_industry,
+        construction:   t.sector_construction,
+        commerce:       t.sector_commerce,
+        maritime:       t.sector_maritime,
+        agriculture:    t.sector_agriculture,
+      } as TownSectors,
       risk_factors: t.risk_factors as Town['risk_factors'],
       is_regional_capital: t.is_regional_capital,
       x_coord: parseFloat(t.x_coord),
@@ -170,6 +172,7 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
     id: string; username: string; bank_name: string;
     reputation: string; starting_town_id: string;
     is_bankrupt: boolean; bankruptcy_tick: number | null;
+    is_bot: boolean; bot_strategy: string | null;
     created_at: string;
   }>('SELECT * FROM players WHERE world_id = $1', [worldId]);
 
@@ -183,6 +186,8 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
       starting_town_id: p.starting_town_id,
       is_bankrupt: p.is_bankrupt,
       bankruptcy_tick: p.bankruptcy_tick ?? undefined,
+      is_bot: p.is_bot ?? false,
+      bot_strategy: p.bot_strategy ?? undefined,
       created_at: p.created_at,
     };
     state.players.set(player.id, player);
@@ -299,23 +304,23 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
     state.setDeposit(deposit);
   }
 
-  // Load pending infrastructure investments
+  // Load pending sector investments
   const { rows: investRows } = await pool.query<{
     id: string; player_id: string; town_id: string;
-    infra_type: string; amount_invested: string; completion_tick: number;
+    sector_type: string; amount_invested: string; completion_tick: number;
     completed: boolean; annual_return_rate: string; reputation_bonus: string;
   }>(`
-    SELECT i.* FROM infrastructure_investments i
+    SELECT i.* FROM sector_investments i
     JOIN players p ON p.id = i.player_id
     WHERE p.world_id = $1 AND i.completed = false
   `, [worldId]);
 
   for (const inv of investRows) {
-    const investment: InfrastructureInvestment = {
+    const investment: SectorInvestment = {
       id: inv.id,
       player_id: inv.player_id,
       town_id: inv.town_id,
-      infra_type: inv.infra_type as InfrastructureInvestment['infra_type'],
+      sector_type: inv.sector_type as SectorInvestment['sector_type'],
       amount_invested: parseFloat(inv.amount_invested),
       completion_tick: inv.completion_tick,
       completed: inv.completed,

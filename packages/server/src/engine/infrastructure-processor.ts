@@ -1,10 +1,11 @@
 import type { WorldState } from '../state/world-state';
 import { TICKS_PER_YEAR } from '@argentum/shared';
+import type { SectorType } from '@argentum/shared';
 
 /**
- * Step 7: Process infrastructure investments.
+ * Step 7: Process sector investments.
  * - Complete investments that have reached their completion_tick
- * - Upgrade town infrastructure level
+ * - Upgrade town sector level
  * - Pay ongoing returns from completed investments
  */
 export function processInfrastructure(state: WorldState): void {
@@ -13,21 +14,19 @@ export function processInfrastructure(state: WorldState): void {
   for (const investment of state.investments.values()) {
     if (investment.completed) continue;
 
-    // Check if investment is complete
     if (tick >= investment.completion_tick) {
       investment.completed = true;
 
       const town = state.towns.get(investment.town_id);
       if (town) {
-        // Upgrade the town infrastructure level (capped at 5)
-        const currentLevel = town.infrastructure[investment.infra_type];
+        const sectorType = investment.sector_type as SectorType;
+        const currentLevel = town.sectors[sectorType];
         if (currentLevel < 5) {
-          town.infrastructure[investment.infra_type] = (currentLevel + 1) as 0|1|2|3|4|5;
-          console.log(`[infra] ${town.name} ${investment.infra_type} upgraded to level ${currentLevel + 1}`);
+          town.sectors[sectorType] = (currentLevel + 1) as 0|1|2|3|4|5;
+          console.log(`[sectors] ${town.name} ${sectorType} upgraded to level ${currentLevel + 1}`);
         }
       }
 
-      // Apply reputation bonus
       const player = state.players.get(investment.player_id);
       if (player) {
         player.reputation = Math.min(100, player.reputation + investment.reputation_bonus);

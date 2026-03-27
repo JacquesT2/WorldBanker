@@ -21,20 +21,20 @@ const EVENT_ICONS: Record<string, string> = {
 
 const EVENT_COLORS: Record<string, string> = {
   flood:             'border-blue-500',
-  drought:           'border-yellow-500',
-  plague:            'border-purple-500',
-  bandit_raid:       'border-red-500',
-  volcanic_eruption: 'border-orange-500',
-  earthquake:        'border-orange-400',
-  trade_boom:        'border-green-400',
-  pirate_attack:     'border-red-400',
-  storm:             'border-blue-400',
-  forest_fire:       'border-orange-400',
+  drought:           'border-yellow-600',
+  plague:            'border-purple-600',
+  bandit_raid:       'border-red-600',
+  volcanic_eruption: 'border-orange-600',
+  earthquake:        'border-orange-500',
+  trade_boom:        'border-green-600',
+  pirate_attack:     'border-red-500',
+  storm:             'border-blue-600',
+  forest_fire:       'border-orange-500',
   good_harvest:      'border-green-500',
-  poor_harvest:      'border-yellow-400',
+  poor_harvest:      'border-yellow-500',
   resource_discovery:'border-gold-400',
-  political_crisis:  'border-purple-400',
-  migration_wave:    'border-cyan-400',
+  political_crisis:  'border-purple-500',
+  migration_wave:    'border-cyan-600',
 };
 
 export default function EventsPage() {
@@ -53,7 +53,7 @@ export default function EventsPage() {
       </h2>
 
       {events.length === 0 && (
-        <div className="bg-ink-700 border border-gold-600 rounded-lg p-8 text-center text-parch-200">
+        <div className="bg-parch-50 border border-parch-300 rounded-lg p-8 text-center text-ink-700">
           No active events. The world is calm for now.
         </div>
       )}
@@ -63,33 +63,33 @@ export default function EventsPage() {
           const town   = getTown(event.town_id);
           const region = town ? getRegion(town.region_id) : undefined;
           const icon   = EVENT_ICONS[event.event_type] ?? '!';
-          const borderColor = EVENT_COLORS[event.event_type] ?? 'border-gold-600';
+          const borderColor = EVENT_COLORS[event.event_type] ?? 'border-parch-300';
 
           return (
             <div
               key={event.id}
-              className={`bg-ink-700 border-l-4 ${borderColor} rounded-lg p-4`}
+              className={`bg-parch-50 border-l-4 ${borderColor} rounded-lg p-4`}
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-3">
                   <span className="text-2xl">{icon}</span>
                   <div>
-                    <h3 className="font-semibold text-parch-100">
+                    <h3 className="font-semibold text-ink-800">
                       {event.event_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
                     </h3>
-                    <p className="text-parch-200 text-sm">
+                    <p className="text-ink-700 text-sm">
                       {town?.name ?? event.town_id}{region && `, ${region.name}`}
                     </p>
-                    <p className="text-parch-100 text-sm mt-1">{event.description}</p>
+                    <p className="text-ink-800 text-sm mt-1">{event.description}</p>
                   </div>
                 </div>
-                <div className="text-right text-xs text-parch-200 shrink-0 ml-4">
+                <div className="text-right text-xs text-ink-700 shrink-0 ml-4">
                   <p>Severity: {(event.severity * 100).toFixed(0)}%</p>
                   <p>{event.ticks_remaining} ticks left</p>
                 </div>
               </div>
 
-              <div className="mt-2 flex gap-4 text-xs text-parch-200">
+              <div className="mt-2 flex gap-4 text-xs text-ink-700">
                 <span>Output: ×{event.economic_output_modifier.toFixed(2)}</span>
                 <span>Population: ×{event.population_modifier.toFixed(2)}</span>
                 <span>Loan risk: ×{event.loan_default_modifier.toFixed(2)}</span>

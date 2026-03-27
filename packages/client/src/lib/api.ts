@@ -73,10 +73,10 @@ export const api = {
   },
   investments: {
     mine: () => apiFetch<unknown[]>('/investments'),
-    invest: (town_id: string, infra_type: string, amount: number) =>
-      apiFetch<{ investment_id: string }>('/investments/infrastructure', {
+    invest: (town_id: string, sector_type: string, amount: number) =>
+      apiFetch<{ investment_id: string }>('/investments/sector', {
         method: 'POST',
-        body: JSON.stringify({ town_id, infra_type, amount }),
+        body: JSON.stringify({ town_id, sector_type, amount }),
       }),
   },
   leaderboard: {

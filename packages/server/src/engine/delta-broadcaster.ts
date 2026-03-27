@@ -62,11 +62,17 @@ export function buildTickDelta(
       .filter(r => r.player_id === player.id)
       .map(r => r.loan_id);
 
+    const depositBalances: Record<string, number> = {};
+    for (const d of state.getDepositsForPlayer(player.id)) {
+      depositBalances[d.town_id] = d.balance;
+    }
+
     playerUpdates[player.id] = {
       balance_sheet: { ...bs },
       new_loan_default_ids: playerDefaulted,
       new_loan_repayment_ids: playerRepaid,
       reputation_delta: playerDefaulted.length > 0 ? -2 * playerDefaulted.length : 0,
+      deposit_balances: depositBalances,
     };
   }
 

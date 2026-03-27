@@ -3,18 +3,18 @@
 @tailwind utilities;
 
 :root {
-  --gold: #d4a017;
-  --parch: #fdf8ec;
-  --ink: #2c1a0e;
+  --gold: #9a7018;
+  --parch: #f5e8c8;
+  --ink: #3a2010;
 }
 
 body {
-  background-color: #1a0e07;
-  color: #f9efce;
+  background-color: #f5e8c8;
+  color: #3a2010;
   font-family: Georgia, serif;
 }
 
 /* Scrollbar styling */
 ::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #1a0e07; }
-::-webkit-scrollbar-thumb { background: #d4a017; border-radius: 3px; }
+::-webkit-scrollbar-track { background: #f5e8c8; }
+::-webkit-scrollbar-thumb { background: #c4a870; border-radius: 3px; }

@@ -17,16 +17,16 @@ interface LicenseMarketEntry {
 }
 
 const RISK_COLORS: Record<string, string> = {
-  'coastal-trade-hub':  'text-blue-400',
-  'river-delta':        'text-green-400',
-  'mountain-mining':    'text-yellow-600',
-  'forest-timber':      'text-green-600',
-  'steppe-pastoral':    'text-yellow-400',
-  'volcanic':           'text-red-400',
-  'island-archipelago': 'text-cyan-400',
-  'crossroads':         'text-purple-400',
-  'marshland':          'text-gray-400',
-  'highland-plateau':   'text-gray-300',
+  'coastal-trade-hub':  'text-blue-700',
+  'river-delta':        'text-green-700',
+  'mountain-mining':    'text-amber-800',
+  'forest-timber':      'text-green-800',
+  'steppe-pastoral':    'text-amber-700',
+  'volcanic':           'text-red-700',
+  'island-archipelago': 'text-cyan-700',
+  'crossroads':         'text-purple-700',
+  'marshland':          'text-gray-600',
+  'highland-plateau':   'text-gray-700',
 };
 
 export default function LicensesPage() {
@@ -50,7 +50,7 @@ export default function LicensesPage() {
     setPurchasing(townId);
     try {
       const res = await api.licenses.purchase(townId);
-      setMessages(m => ({ ...m, [townId]: `License purchased! Cost: ${res.cost}g` }));
+      setMessages(m => ({ ...m, [townId]: `License purchased! Cost: ${res.cost.toLocaleString()}` }));
       setMarket(prev => prev.map(t =>
         t.town_id === townId
           ? { ...t, you_are_licensed: true, existing_license_count: t.existing_license_count + 1 }
@@ -79,8 +79,8 @@ export default function LicensesPage() {
       <h2 className="text-xl font-bold text-gold-400 mb-4">License Market</h2>
 
       {bs && (
-        <p className="text-parch-200 text-sm mb-4">
-          Available cash: <span className="font-mono text-gold-400">{bs.cash.toFixed(0)}g</span>
+        <p className="text-ink-700 text-sm mb-4">
+          Available cash: <span className="font-mono text-gold-400">{bs.cash.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
         </p>
       )}
 
@@ -90,12 +90,12 @@ export default function LicensesPage() {
           placeholder="Search towns..."
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="bg-ink-700 border border-gold-600 rounded px-3 py-2 text-sm text-parch-100 w-48"
+          className="bg-white border border-parch-300 rounded px-3 py-2 text-sm text-ink-800 w-48"
         />
         <select
           value={sortBy}
           onChange={e => setSortBy(e.target.value as typeof sortBy)}
-          className="bg-ink-700 border border-gold-600 rounded px-3 py-2 text-sm text-parch-100"
+          className="bg-white border border-parch-300 rounded px-3 py-2 text-sm text-ink-800"
         >
           <option value="output">Sort: Economy</option>
           <option value="population">Sort: Population</option>
@@ -104,12 +104,12 @@ export default function LicensesPage() {
       </div>
 
       {loading ? (
-        <p className="text-parch-200">Loading market...</p>
+        <p className="text-ink-700">Loading market...</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-parch-200 border-b border-gold-600 text-left">
+              <tr className="text-ink-700 border-b border-parch-300 text-left">
                 <th className="pb-2 pr-4">Town</th>
                 <th className="pb-2 pr-4">Region</th>
                 <th className="pb-2 pr-4 text-right">Pop.</th>
@@ -123,29 +123,29 @@ export default function LicensesPage() {
               {filtered.map(town => (
                 <tr
                   key={town.town_id}
-                  className={`border-b border-ink-700 hover:bg-ink-700 ${town.you_are_licensed ? 'opacity-60' : ''}`}
+                  className={`border-b border-parch-200 hover:bg-parch-100 ${town.you_are_licensed ? 'opacity-60' : ''}`}
                 >
                   <td className="py-2 pr-4 font-medium">
                     {town.town_name}
                     {town.you_are_licensed && <span className="ml-2 text-xs text-safe-400">✓ Licensed</span>}
                   </td>
-                  <td className={`py-2 pr-4 text-xs ${RISK_COLORS[town.region_type] ?? 'text-parch-200'}`}>
+                  <td className={`py-2 pr-4 text-xs ${RISK_COLORS[town.region_type] ?? 'text-ink-700'}`}>
                     {town.region_name}
                   </td>
                   <td className="py-2 pr-4 text-right font-mono">{town.population.toLocaleString()}</td>
                   <td className="py-2 pr-4 text-right font-mono text-gold-400">
-                    {(town.economic_output / 1000).toFixed(0)}k
+                    {town.economic_output.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </td>
                   <td className="py-2 pr-4 text-right font-mono">{town.existing_license_count}</td>
-                  <td className="py-2 pr-4 text-right font-mono text-gold-400">{town.license_cost}g</td>
+                  <td className="py-2 pr-4 text-right font-mono text-gold-400">{town.license_cost.toLocaleString()}</td>
                   <td className="py-2">
                     {messages[town.town_id] ? (
-                      <span className="text-xs text-parch-200">{messages[town.town_id]}</span>
+                      <span className="text-xs text-ink-700">{messages[town.town_id]}</span>
                     ) : !town.you_are_licensed ? (
                       <button
                         onClick={() => handlePurchase(town.town_id)}
                         disabled={purchasing === town.town_id || (bs ? bs.cash < town.license_cost : true)}
-                        className="bg-gold-500 hover:bg-gold-400 text-ink-800 text-xs font-bold px-3 py-1 rounded disabled:opacity-40"
+                        className="bg-gold-500 hover:bg-gold-400 text-parch-50 text-xs font-bold px-3 py-1 rounded disabled:opacity-40"
                       >
                         {purchasing === town.town_id ? '...' : 'Buy'}
                       </button>

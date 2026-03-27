@@ -7,6 +7,8 @@ export interface Player {
   starting_town_id: string;
   is_bankrupt: boolean;
   bankruptcy_tick?: number;
+  is_bot: boolean;
+  bot_strategy?: string;
   created_at: string;
 }
 
@@ -23,6 +25,7 @@ export interface PlayerScore {
   player_id: string;
   username: string;
   bank_name: string;
+  is_bot?: boolean;
   total_score: number;
   net_worth_score: number;          // 40% weight
   portfolio_quality_score: number;  // 30% weight

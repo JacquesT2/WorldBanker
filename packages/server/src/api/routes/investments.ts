@@ -1,15 +1,16 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth';
-import { validate, InfrastructureInvestSchema } from '../middleware/validate';
+import { validate, SectorInvestSchema } from '../middleware/validate';
 import { pool } from '../../db/pool';
 import type { WorldState } from '../../state/world-state';
-import { INFRA_LEVEL_COSTS, INFRA_BUILD_TICKS } from '@argentum/shared';
+import { SECTOR_LEVEL_COSTS, SECTOR_BUILD_TICKS, SECTOR_RETURN_RATES } from '@argentum/shared';
+import type { SectorInvestmentType } from '@argentum/shared';
 
 export function createInvestmentsRouter(state: WorldState) {
   const router = Router();
 
-  // GET /investments
+  // GET /investments — list player's investments
   router.get('/', authMiddleware, (req, res) => {
     const { player_id } = (req as AuthenticatedRequest).auth;
     const investments = Array.from(state.investments.values()).filter(
@@ -18,10 +19,14 @@ export function createInvestmentsRouter(state: WorldState) {
     res.json(investments);
   });
 
-  // POST /investments/infrastructure
-  router.post('/infrastructure', authMiddleware, validate(InfrastructureInvestSchema), async (req, res) => {
+  // POST /investments/sector — invest in a town sector
+  router.post('/sector', authMiddleware, validate(SectorInvestSchema), async (req, res) => {
     const { player_id } = (req as AuthenticatedRequest).auth;
-    const { town_id, infra_type, amount } = req.body;
+    const { town_id, sector_type, amount } = req.body as {
+      town_id: string;
+      sector_type: SectorInvestmentType;
+      amount: number;
+    };
 
     const licenses = state.licenses.get(player_id) ?? [];
     if (!licenses.some(l => l.town_id === town_id)) {
@@ -35,16 +40,16 @@ export function createInvestmentsRouter(state: WorldState) {
       return;
     }
 
-    const currentLevel = town.infrastructure[infra_type as keyof typeof town.infrastructure];
+    const currentLevel = town.sectors[sector_type];
     if (currentLevel >= 5) {
-      res.status(422).json({ error: `${infra_type} is already at maximum level (5)` });
+      res.status(422).json({ error: `${sector_type} sector is already at maximum level (5)` });
       return;
     }
 
-    const requiredAmount = (INFRA_LEVEL_COSTS[infra_type] ?? [])[currentLevel] ?? 999999;
+    const requiredAmount = (SECTOR_LEVEL_COSTS[sector_type] ?? [])[currentLevel] ?? 999999;
     if (amount < requiredAmount) {
       res.status(422).json({
-        error: `Insufficient investment for next ${infra_type} level`,
+        error: `Insufficient investment for next ${sector_type} level`,
         required: requiredAmount,
         provided: amount,
       });
@@ -58,24 +63,19 @@ export function createInvestmentsRouter(state: WorldState) {
     }
 
     const tick = state.clock.current_tick;
-    const buildTicks = INFRA_BUILD_TICKS[infra_type] ?? 90;
+    const buildTicks = SECTOR_BUILD_TICKS[sector_type] ?? 90;
     const completion_tick = tick + buildTicks;
     const investId = uuidv4();
-
-    // Return on investment scales with infra type importance
-    const returnRates: Record<string, number> = {
-      roads: 0.04, port: 0.06, granary: 0.03, market: 0.05, walls: 0.02
-    };
-    const annual_return_rate = returnRates[infra_type] ?? 0.04;
+    const annual_return_rate = SECTOR_RETURN_RATES[sector_type] ?? 0.04;
     const reputation_bonus = 2.0;
 
     try {
       await pool.query(
-        `INSERT INTO infrastructure_investments
-           (id, player_id, town_id, infra_type, amount_invested, completion_tick,
+        `INSERT INTO sector_investments
+           (id, player_id, town_id, sector_type, amount_invested, completion_tick,
             completed, annual_return_rate, reputation_bonus)
          VALUES ($1,$2,$3,$4,$5,$6,false,$7,$8)`,
-        [investId, player_id, town_id, infra_type, amount, completion_tick,
+        [investId, player_id, town_id, sector_type, amount, completion_tick,
          annual_return_rate, reputation_bonus]
       );
 
@@ -89,7 +89,7 @@ export function createInvestmentsRouter(state: WorldState) {
         id: investId,
         player_id,
         town_id,
-        infra_type: infra_type as 'roads' | 'port' | 'granary' | 'walls' | 'market',
+        sector_type,
         amount_invested: amount,
         completion_tick,
         completed: false,
@@ -104,7 +104,7 @@ export function createInvestmentsRouter(state: WorldState) {
         completes_in_ticks: buildTicks,
       });
     } catch (err) {
-      console.error('[investments/infrastructure]', err);
+      console.error('[investments/sector]', err);
       res.status(500).json({ error: 'Failed to create investment' });
     }
   });

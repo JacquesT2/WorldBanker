@@ -1,34 +1,57 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { api } from '../../../lib/api';
 import { usePlayerStore } from '../../../store/player-store';
 import { useWorldStore } from '../../../store/world-store';
-import { INFRA_LEVEL_COSTS, INFRA_BUILD_TICKS } from '@argentum/shared';
+import type { SectorType } from '@argentum/shared';
+
+const SECTOR_COLORS: Record<string, string> = {
+  military:       '#ef4444',
+  heavy_industry: '#f97316',
+  construction:   '#eab308',
+  commerce:       '#22c55e',
+  maritime:       '#3b82f6',
+  agriculture:    '#84cc16',
+};
+
+const SECTOR_ICONS: Record<string, string> = {
+  military:       '⚔',
+  heavy_industry: '⚒',
+  construction:   '🏗',
+  commerce:       '💰',
+  maritime:       '⚓',
+  agriculture:    '🌾',
+};
+
+const SECTOR_LABELS: Record<string, string> = {
+  military:       'Military',
+  heavy_industry: 'Heavy Industry',
+  construction:   'Construction',
+  commerce:       'Commerce',
+  maritime:       'Maritime',
+  agriculture:    'Agriculture',
+};
 
 interface InvestmentEntry {
   id: string;
   player_id: string;
   town_id: string;
-  infra_type: string;
+  sector_type: string;
   amount_invested: number;
   completion_tick: number;
   completed: boolean;
   annual_return_rate: number;
 }
 
-const INFRA_TYPES = ['roads', 'port', 'granary', 'walls', 'market'] as const;
-
 export default function InvestmentsPage() {
+  const router = useRouter();
   const [investments, setInvestments] = useState<InvestmentEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ town_id: '', infra_type: 'roads', amount: 0 });
-  const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState('');
 
-  const licenses = usePlayerStore(s => s.licenses);
-  const bs       = usePlayerStore(s => s.balanceSheet);
-  const getTown  = useWorldStore(s => s.getTown);
-  const clock    = useWorldStore(s => s.clock);
+  const getTown = useWorldStore(s => s.getTown);
+  const clock   = useWorldStore(s => s.clock);
+  const bs      = usePlayerStore(s => s.balanceSheet);
 
   useEffect(() => {
     api.investments.mine()
@@ -37,130 +60,149 @@ export default function InvestmentsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const selectedTown = getTown(form.town_id);
-  const currentLevel = selectedTown
-    ? selectedTown.infrastructure[form.infra_type as keyof typeof selectedTown.infrastructure]
-    : 0;
-  const requiredAmount = currentLevel < 5
-    ? (INFRA_LEVEL_COSTS[form.infra_type] ?? [])[currentLevel] ?? 0
-    : 0;
-  const buildTicks = INFRA_BUILD_TICKS[form.infra_type] ?? 90;
+  // group by town
+  const byTown = new Map<string, InvestmentEntry[]>();
+  for (const inv of investments) {
+    const list = byTown.get(inv.town_id) ?? [];
+    list.push(inv);
+    byTown.set(inv.town_id, list);
+  }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setMessage('');
-    try {
-      await api.investments.invest(form.town_id, form.infra_type, form.amount);
-      setMessage('Investment placed successfully!');
-      const updated = await api.investments.mine();
-      setInvestments(updated as InvestmentEntry[]);
-    } catch (err) {
-      setMessage((err as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  // totals
+  const totalInvested = investments.reduce((a, i) => a + i.amount_invested, 0);
+  const annualReturn  = investments
+    .filter(i => i.completed)
+    .reduce((a, i) => a + i.amount_invested * i.annual_return_rate, 0);
+  const pending = investments.filter(i => !i.completed).length;
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h2 className="text-xl font-bold text-gold-400 mb-6">Infrastructure Investments</h2>
-
-      {/* New Investment Form */}
-      <div className="bg-ink-700 border border-gold-600 rounded-lg p-4 mb-6">
-        <h3 className="text-gold-400 font-semibold mb-3">Fund New Infrastructure</h3>
-        <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-parch-200 text-sm mb-1">Town (licensed only)</label>
-            <select
-              value={form.town_id}
-              onChange={e => setForm(f => ({ ...f, town_id: e.target.value }))}
-              className="w-full bg-ink-800 border border-gold-600 rounded px-3 py-2 text-sm text-parch-100"
-              required
-            >
-              <option value="">Select a town...</option>
-              {licenses.map(l => {
-                const town = getTown(l.town_id);
-                return (
-                  <option key={l.town_id} value={l.town_id}>
-                    {town?.name ?? l.town_id}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-parch-200 text-sm mb-1">Infrastructure Type</label>
-            <select
-              value={form.infra_type}
-              onChange={e => setForm(f => ({ ...f, infra_type: e.target.value, amount: 0 }))}
-              className="w-full bg-ink-800 border border-gold-600 rounded px-3 py-2 text-sm text-parch-100"
-            >
-              {INFRA_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-
-          {selectedTown && (
-            <>
-              <div className="text-sm text-parch-200 col-span-2">
-                Current level: {currentLevel}/5 •
-                Required investment: <span className="text-gold-400 font-mono">{requiredAmount}g</span> •
-                Build time: <span className="font-mono">{buildTicks} ticks ({Math.round(buildTicks / 90)} seasons)</span>
-              </div>
-
-              <div>
-                <label className="block text-parch-200 text-sm mb-1">Amount (min: {requiredAmount}g)</label>
-                <input
-                  type="number"
-                  min={requiredAmount}
-                  value={form.amount || ''}
-                  onChange={e => setForm(f => ({ ...f, amount: parseInt(e.target.value) || 0 }))}
-                  className="w-full bg-ink-800 border border-gold-600 rounded px-3 py-2 text-sm font-mono text-parch-100"
-                  required
-                />
-              </div>
-
-              <div className="flex items-end">
-                <button
-                  type="submit"
-                  disabled={submitting || currentLevel >= 5 || (bs ? bs.cash < form.amount : true)}
-                  className="w-full bg-gold-500 hover:bg-gold-400 text-ink-800 font-bold py-2 rounded text-sm disabled:opacity-40"
-                >
-                  {submitting ? '...' : currentLevel >= 5 ? 'Max Level' : 'Invest'}
-                </button>
-              </div>
-            </>
-          )}
-        </form>
-        {message && <p className="mt-2 text-sm text-parch-200">{message}</p>}
+    <div className="p-6 max-w-4xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-xl font-bold text-gold-400">Sector Investments — Portfolio</h2>
+        <button
+          onClick={() => router.push('/world-map')}
+          className="bg-gold-500 hover:bg-gold-400 text-parch-50 font-bold text-sm px-4 py-2 rounded"
+        >
+          + Fund via Map
+        </button>
       </div>
 
-      {/* Active Investments */}
-      <h3 className="text-gold-400 font-semibold mb-3">Your Investments ({investments.length})</h3>
-      {loading ? (
-        <p className="text-parch-200">Loading...</p>
-      ) : investments.length === 0 ? (
-        <p className="text-parch-200">No investments yet.</p>
-      ) : (
-        <div className="space-y-2">
-          {investments.map(inv => {
-            const town = getTown(inv.town_id);
-            const ticksLeft = clock ? Math.max(0, inv.completion_tick - clock.current_tick) : '?';
-            return (
-              <div key={inv.id} className="bg-ink-700 border border-gold-600 rounded p-3 flex items-center justify-between text-sm">
-                <div>
-                  <span className="font-medium">{town?.name ?? inv.town_id}</span>
-                  <span className="text-parch-200 ml-2">— {inv.infra_type}</span>
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="bg-parch-50 border border-parch-300 rounded-lg p-4">
+          <p className="text-ink-700 text-xs uppercase tracking-wide mb-1">Total Invested</p>
+          <p className="text-2xl font-mono font-bold text-gold-400">{Math.round(totalInvested).toLocaleString()}</p>
+          <p className="text-ink-700 text-xs">gold committed</p>
+        </div>
+        <div className="bg-parch-50 border border-parch-300 rounded-lg p-4">
+          <p className="text-ink-700 text-xs uppercase tracking-wide mb-1">Annual Return</p>
+          <p className="text-2xl font-mono font-bold text-safe-400">{Math.round(annualReturn).toLocaleString()}</p>
+          <p className="text-ink-700 text-xs">from active investments</p>
+        </div>
+        <div className="bg-parch-50 border border-parch-300 rounded-lg p-4">
+          <p className="text-ink-700 text-xs uppercase tracking-wide mb-1">Under Construction</p>
+          <p className="text-2xl font-mono font-bold text-ink-800">{pending}</p>
+          <p className="text-ink-700 text-xs">projects in progress</p>
+        </div>
+      </div>
+
+      {/* per-sector summary */}
+      {investments.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-gold-400 font-semibold mb-3 text-sm uppercase tracking-wide">By Sector</h3>
+          <div className="grid grid-cols-3 gap-2">
+            {Object.keys(SECTOR_LABELS).map(sector => {
+              const sectorInvs = investments.filter(i => i.sector_type === sector);
+              if (sectorInvs.length === 0) return null;
+              const total = sectorInvs.reduce((a, i) => a + i.amount_invested, 0);
+              const active = sectorInvs.filter(i => i.completed).length;
+              return (
+                <div key={sector} className="bg-parch-50 border border-parch-300 rounded-lg p-3 flex items-center gap-3">
+                  <span className="text-2xl">{SECTOR_ICONS[sector]}</span>
+                  <div>
+                    <p className="text-xs font-semibold text-ink-800">{SECTOR_LABELS[sector]}</p>
+                    <p className="text-xs text-ink-700">{active}/{sectorInvs.length} active</p>
+                    <p className="text-xs font-mono" style={{ color: SECTOR_COLORS[sector] }}>
+                      {Math.round(total).toLocaleString()} gold
+                    </p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-4 text-parch-200">
-                  <span className="font-mono text-gold-400">{inv.amount_invested.toFixed(0)}g</span>
-                  {inv.completed ? (
-                    <span className="text-safe-400 font-medium">✓ Complete</span>
-                  ) : (
-                    <span>{ticksLeft} ticks remaining</span>
-                  )}
-                  <span className="font-mono">{(inv.annual_return_rate * 100).toFixed(0)}%/yr return</span>
+              );
+            }).filter(Boolean)}
+          </div>
+        </div>
+      )}
+
+      {/* investment list grouped by town */}
+      {loading ? (
+        <p className="text-ink-700">Loading…</p>
+      ) : investments.length === 0 ? (
+        <div className="text-center py-12">
+          <p className="text-ink-700 mb-3">No sector investments yet.</p>
+          <p className="text-ink-700 text-sm mb-4">Click on a licensed town in the world map to fund sector development.</p>
+          <button
+            onClick={() => router.push('/world-map')}
+            className="bg-gold-500 hover:bg-gold-400 text-parch-50 font-bold text-sm px-4 py-2 rounded"
+          >
+            Open World Map
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <h3 className="text-gold-400 font-semibold mb-1 text-sm uppercase tracking-wide">By Town</h3>
+          {Array.from(byTown.entries()).map(([townId, invs]) => {
+            const town = getTown(townId);
+            return (
+              <div key={townId} className="bg-parch-50 border border-parch-300 rounded-lg overflow-hidden">
+                <div
+                  className="px-4 py-2 border-b border-parch-300 flex items-center justify-between cursor-pointer hover:bg-parch-100"
+                  onClick={() => router.push(`/town/${townId}`)}
+                >
+                  <span className="font-semibold text-gold-400">{town?.name ?? townId}</span>
+                  <span className="text-xs text-ink-700">{invs.length} investment{invs.length !== 1 ? 's' : ''} → view town</span>
+                </div>
+                <div className="divide-y divide-parch-200">
+                  {invs.map(inv => {
+                    const ticksLeft = clock ? Math.max(0, inv.completion_tick - clock.current_tick) : null;
+                    const color = SECTOR_COLORS[inv.sector_type] ?? '#888';
+                    const progress = ticksLeft != null && !inv.completed
+                      ? Math.max(0, Math.min(100, 100 - (ticksLeft / (inv.completion_tick)) * 100))
+                      : 100;
+                    return (
+                      <div key={inv.id} className="px-4 py-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">{SECTOR_ICONS[inv.sector_type] ?? ''}</span>
+                            <div>
+                              <span className="font-medium text-sm" style={{ color }}>
+                                {SECTOR_LABELS[inv.sector_type] ?? inv.sector_type}
+                              </span>
+                              <span className="text-ink-700 text-xs ml-2">
+                                {(inv.annual_return_rate * 100).toFixed(0)}%/yr return
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-mono text-sm text-gold-400">{Math.round(inv.amount_invested).toLocaleString()}</p>
+                            {inv.completed ? (
+                              <p className="text-safe-400 text-xs font-medium">✓ Active</p>
+                            ) : (
+                              <p className="text-ink-700 text-xs">{ticksLeft ?? '?'} ticks left</p>
+                            )}
+                          </div>
+                        </div>
+                        {/* progress bar */}
+                        {!inv.completed && (
+                          <div className="h-1 bg-parch-300 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{ width: `${progress}%`, background: color }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );

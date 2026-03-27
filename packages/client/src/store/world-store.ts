@@ -18,6 +18,7 @@ interface WorldStore {
     regions: Region[];
     events: WorldEvent[];
     clock: WorldClock;
+    tradeRoutes?: TradeRoute[];
   }) => void;
   applyDelta: (delta: TickDelta) => void;
   getTown: (id: string) => Town | undefined;
@@ -33,12 +34,13 @@ export const useWorldStore = create<WorldStore>((set, get) => ({
   tradeRoutes: [],
   isLoaded: false,
 
-  hydrate: ({ towns, regions, events, clock }) => {
+  hydrate: ({ towns, regions, events, clock, tradeRoutes }) => {
     set({
       towns: new Map(towns.map(t => [t.id, t])),
       regions: new Map(regions.map(r => [r.id, r])),
       events: new Map(events.map(e => [e.id, e])),
       clock,
+      tradeRoutes: tradeRoutes ?? [],
       isLoaded: true,
     });
   },

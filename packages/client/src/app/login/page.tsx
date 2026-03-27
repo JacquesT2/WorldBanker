@@ -62,9 +62,9 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-md">
         <h1 className="text-4xl font-bold text-gold-400 text-center mb-2">Argentum</h1>
-        <p className="text-parch-200 text-center mb-8 text-sm">Medieval Banking Simulator</p>
+        <p className="text-ink-700 text-center mb-8 text-sm">Medieval Banking Simulator</p>
 
-        <div className="bg-ink-700 border border-gold-600 rounded-lg p-6">
+        <div className="bg-parch-50 border border-parch-300 rounded-lg p-6">
           <div className="flex mb-6">
             {(['login', 'register'] as const).map(t => (
               <button
@@ -73,7 +73,7 @@ export default function LoginPage() {
                 className={`flex-1 py-2 text-sm font-medium transition-colors ${
                   tab === t
                     ? 'text-gold-400 border-b-2 border-gold-400'
-                    : 'text-parch-200 border-b border-ink-700 hover:text-parch-100'
+                    : 'text-ink-700 border-b border-parch-300 hover:text-ink-800'
                 }`}
               >
                 {t === 'login' ? 'Sign In' : 'Found a Banking House'}
@@ -83,23 +83,23 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm text-parch-200 mb-1">Username</label>
+              <label className="block text-sm text-ink-700 mb-1">Username</label>
               <input
                 type="text"
                 value={form.username}
                 onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-                className="w-full bg-ink-800 border border-gold-600 rounded px-3 py-2 text-parch-100 focus:outline-none focus:border-gold-400"
+                className="w-full bg-white border border-parch-300 rounded px-3 py-2 text-ink-800 focus:outline-none focus:border-gold-400"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-sm text-parch-200 mb-1">Password</label>
+              <label className="block text-sm text-ink-700 mb-1">Password</label>
               <input
                 type="password"
                 value={form.password}
                 onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                className="w-full bg-ink-800 border border-gold-600 rounded px-3 py-2 text-parch-100 focus:outline-none focus:border-gold-400"
+                className="w-full bg-white border border-parch-300 rounded px-3 py-2 text-ink-800 focus:outline-none focus:border-gold-400"
                 required
               />
             </div>
@@ -107,23 +107,23 @@ export default function LoginPage() {
             {tab === 'register' && (
               <>
                 <div>
-                  <label className="block text-sm text-parch-200 mb-1">Banking House Name</label>
+                  <label className="block text-sm text-ink-700 mb-1">Banking House Name</label>
                   <input
                     type="text"
                     value={form.bank_name}
                     onChange={e => setForm(f => ({ ...f, bank_name: e.target.value }))}
-                    className="w-full bg-ink-800 border border-gold-600 rounded px-3 py-2 text-parch-100 focus:outline-none focus:border-gold-400"
+                    className="w-full bg-white border border-parch-300 rounded px-3 py-2 text-ink-800 focus:outline-none focus:border-gold-400"
                     required
                     placeholder="e.g. House Valdren"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm text-parch-200 mb-1">Starting City (free license)</label>
+                  <label className="block text-sm text-ink-700 mb-1">Starting City (free license)</label>
                   <select
                     value={form.starting_town_id}
                     onChange={e => setForm(f => ({ ...f, starting_town_id: e.target.value }))}
-                    className="w-full bg-ink-800 border border-gold-600 rounded px-3 py-2 text-parch-100 focus:outline-none focus:border-gold-400"
+                    className="w-full bg-white border border-parch-300 rounded px-3 py-2 text-ink-800 focus:outline-none focus:border-gold-400"
                   >
                     {CAPITAL_TOWNS.map(t => (
                       <option key={t.id} value={t.id}>{t.name}</option>
@@ -140,7 +140,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gold-500 hover:bg-gold-400 text-ink-800 font-bold py-2 rounded transition-colors disabled:opacity-50"
+              className="w-full bg-gold-500 hover:bg-gold-400 text-parch-50 font-bold py-2 rounded transition-colors disabled:opacity-50"
             >
               {loading ? 'Please wait...' : tab === 'login' ? 'Enter the Market' : 'Found Your House'}
             </button>

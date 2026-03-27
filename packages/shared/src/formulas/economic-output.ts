@@ -1,27 +1,33 @@
 import type { Town, WorldEvent, RegionType } from '../types/world.js';
 import type { Season } from '../types/tick.js';
 import {
-  INFRA_ROADS_PER_LEVEL,
-  INFRA_PORT_PER_LEVEL,
-  INFRA_GRANARY_PER_LEVEL,
-  INFRA_MARKET_PER_LEVEL,
-  INFRA_WALLS_PER_LEVEL,
+  SECTOR_MILITARY_PER_LEVEL,
+  SECTOR_HEAVY_INDUSTRY_PER_LEVEL,
+  SECTOR_CONSTRUCTION_PER_LEVEL,
+  SECTOR_COMMERCE_PER_LEVEL,
+  SECTOR_MARITIME_PER_LEVEL,
+  SECTOR_AGRICULTURE_PER_LEVEL,
 } from '../constants/economics.js';
 
 /**
- * Infrastructure bonus multiplier (1.0 = no bonus, max ~1.75 at all-5 infra)
+ * Sector development bonus multiplier (1.0 = no bonus).
+ * Max at all-5 sectors ≈ 2.35x
  */
-export function calcInfraMultiplier(town: Pick<Town, 'infrastructure'>): number {
-  const { roads, port, granary, market, walls } = town.infrastructure;
+export function calcSectorMultiplier(town: Pick<Town, 'sectors'>): number {
+  const { military, heavy_industry, construction, commerce, maritime, agriculture } = town.sectors;
   return (
     1.0 +
-    roads   * INFRA_ROADS_PER_LEVEL +
-    port    * INFRA_PORT_PER_LEVEL +
-    granary * INFRA_GRANARY_PER_LEVEL +
-    market  * INFRA_MARKET_PER_LEVEL +
-    walls   * INFRA_WALLS_PER_LEVEL
+    military       * SECTOR_MILITARY_PER_LEVEL +
+    heavy_industry * SECTOR_HEAVY_INDUSTRY_PER_LEVEL +
+    construction   * SECTOR_CONSTRUCTION_PER_LEVEL +
+    commerce       * SECTOR_COMMERCE_PER_LEVEL +
+    maritime       * SECTOR_MARITIME_PER_LEVEL +
+    agriculture    * SECTOR_AGRICULTURE_PER_LEVEL
   );
 }
+
+/** @deprecated use calcSectorMultiplier */
+export const calcInfraMultiplier = calcSectorMultiplier;
 
 /**
  * Season modifier for economic output.
@@ -52,18 +58,17 @@ export function calcEventMultiplier(activeEvents: Pick<WorldEvent, 'economic_out
 
 /**
  * Total economic output for a town this tick.
- * This is the base value from which deposit flow, loan demand, and scoring derive.
  */
 export function calcEconomicOutput(
-  town: Pick<Town, 'population' | 'wealth_per_capita' | 'infrastructure'>,
+  town: Pick<Town, 'population' | 'wealth_per_capita' | 'sectors'>,
   regionType: RegionType,
   season: Season,
   activeEvents: Pick<WorldEvent, 'economic_output_modifier'>[],
   cycleMultiplier = 1.0,
 ): number {
-  const base = town.population * town.wealth_per_capita;
-  const infra = calcInfraMultiplier(town);
+  const base     = town.population * town.wealth_per_capita;
+  const sectors  = calcSectorMultiplier(town);
   const seasonal = calcSeasonMultiplier(regionType, season);
-  const events = calcEventMultiplier(activeEvents);
-  return base * infra * seasonal * events * cycleMultiplier;
+  const events   = calcEventMultiplier(activeEvents);
+  return base * sectors * seasonal * events * cycleMultiplier;
 }
