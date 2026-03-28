@@ -1,5 +1,5 @@
 import type { Town, Region, WorldEvent, TradeRoute } from './world.js';
-import type { BalanceSheet, LoanProposal } from './banking.js';
+import type { BalanceSheet, LoanProposal, LoanAuction, AuctionBid } from './banking.js';
 import type { PlayerScore } from './player.js';
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
@@ -25,6 +25,7 @@ export interface PlayerDeltaUpdate {
   balance_sheet: BalanceSheet;
   new_loan_default_ids: string[];
   new_loan_repayment_ids: string[];
+  new_loans: import('./banking.js').Loan[];    // Loans created this tick (e.g. won at auction)
   reputation_delta: number;
   deposit_balances: Record<string, number>;  // town_id -> current balance
 }
@@ -32,6 +33,12 @@ export interface PlayerDeltaUpdate {
 export interface LoanProposalUpdate {
   new_proposals: LoanProposal[];
   expired_proposal_ids: string[];
+}
+
+export interface AuctionUpdate {
+  new_auctions: LoanAuction[];
+  closed_auction_ids: string[];
+  bid_updates: Array<{ auction_id: string; bids: AuctionBid[] }>;
 }
 
 export interface TickDelta {
@@ -42,6 +49,7 @@ export interface TickDelta {
   resolved_event_ids: string[];
   player_updates: Record<string, PlayerDeltaUpdate>;  // keyed by player_id
   loan_proposal_updates: LoanProposalUpdate;
+  auction_updates: AuctionUpdate;
   leaderboard: PlayerScore[];
 }
 

@@ -22,13 +22,13 @@ function fmt(n: number): string {
 interface TownMeta {
   id: string;
   name: string;
-  economic_output: number;
 }
 
 interface Props {
   licenses: BankingLicense[];
   deposits: Deposit[];
   getTown: (id: string) => TownMeta | undefined;
+  townTotalDeposits: Record<string, number>;
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -45,7 +45,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
-export default function MarketCoverageCharts({ licenses, deposits, getTown }: Props) {
+export default function MarketCoverageCharts({ licenses, deposits, getTown, townTotalDeposits }: Props) {
   if (licenses.length === 0) {
     return (
       <div className="bg-parch-50 border border-parch-300 rounded-lg p-6 text-center text-ink-700 text-sm">
@@ -61,7 +61,7 @@ export default function MarketCoverageCharts({ licenses, deposits, getTown }: Pr
       name: town?.name ?? l.town_id.replace('town_', ''),
       deposits: dep?.balance ?? 0,
       rate: dep?.interest_rate_offered ?? 0,
-      economic_output: town?.economic_output ?? 0,
+      town_total: townTotalDeposits[l.town_id] ?? 0,
     };
   }).sort((a, b) => b.deposits - a.deposits);
 
@@ -96,20 +96,20 @@ export default function MarketCoverageCharts({ licenses, deposits, getTown }: Pr
         </ResponsiveContainer>
       </div>
 
-      {/* Deposits vs economic output (potential) */}
+      {/* Your deposits vs total town deposits */}
       <div className="bg-parch-50 border border-parch-300 rounded-lg p-4 md:col-span-2">
-        <h3 className="text-gold-400 font-semibold mb-4 text-sm">Your Deposits vs Town Economic Output</h3>
+        <h3 className="text-gold-400 font-semibold mb-4 text-sm">Your Deposits vs Total Town Deposits</h3>
         <ResponsiveContainer width="100%" height={180}>
           <BarChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={THEME.grid} opacity={0.4} vertical={false} />
             <XAxis dataKey="name" tick={{ fontSize: 10, fill: THEME.axis }} tickLine={false} angle={-30} textAnchor="end" />
             <YAxis tickFormatter={fmt} tick={{ fontSize: 10, fill: THEME.axis }} tickLine={false} width={44} />
             <Tooltip content={<CustomTooltip />} />
-            <Bar dataKey="economic_output" name="Town output" fill={THEME.grid} radius={[3, 3, 0, 0]} opacity={0.6} />
+            <Bar dataKey="town_total" name="All banks" fill={THEME.grid} radius={[3, 3, 0, 0]} opacity={0.6} />
             <Bar dataKey="deposits" name="Your deposits" fill={THEME.deposit} radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
-        <p className="text-xs text-ink-700 mt-2">Tan = town economic output (scale of opportunity). Green = your current deposits.</p>
+        <p className="text-xs text-ink-700 mt-2">Tan = total deposits held by all banks in this town. Green = your share.</p>
       </div>
 
     </div>

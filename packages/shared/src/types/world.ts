@@ -33,17 +33,6 @@ export type ResourceType =
   | 'silk' | 'salt' | 'livestock' | 'herbs' | 'gold_ore'
   | 'silver_ore' | 'copper' | 'obsidian' | 'peat' | 'pearls';
 
-export interface TownSectors {
-  military:       number;  // 0–5  Fortifications, garrison, war power
-  heavy_industry: number;  // 0–5  Forges, mines, manufacturing
-  construction:   number;  // 0–5  Roads, civic works, housing
-  commerce:       number;  // 0–5  Markets, banking districts, trade
-  maritime:       number;  // 0–5  Ports, naval, fishing fleets
-  agriculture:    number;  // 0–5  Farms, granaries, irrigation
-}
-
-export type SectorType = keyof TownSectors;
-
 export type RiskFactor =
   | 'flood_prone'
   | 'drought_prone'
@@ -64,9 +53,8 @@ export interface Town {
   region_id: string;
   population: number;                 // 500–50000
   wealth_per_capita: number;          // 10–500 gold
-  economic_output: number;            // Derived: f(pop, wealth, infra, season, events)
+  economic_output: number;            // Derived: sum(company revenues) × season × events × cycle
   resources: ResourceType[];
-  sectors: TownSectors;
   risk_factors: RiskFactor[];
   is_regional_capital: boolean;
   x_coord: number;                    // 0–100 normalized for SVG map

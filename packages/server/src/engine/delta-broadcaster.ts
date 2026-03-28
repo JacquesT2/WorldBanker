@@ -1,5 +1,6 @@
 import type { WorldState } from '../state/world-state';
-import type { TickDelta, PlayerDeltaUpdate, TownEconomyUpdate, LoanProposalUpdate, PlayerScore, WorldEvent } from '@argentum/shared';
+import type { TickDelta, PlayerDeltaUpdate, TownEconomyUpdate, LoanProposalUpdate, AuctionUpdate, PlayerScore, WorldEvent } from '@argentum/shared';
+import type { AuctionProcessorResult } from './auction-processor';
 
 interface DeltaBroadcasterDeps {
   newEvents: WorldEvent[];
@@ -9,6 +10,7 @@ interface DeltaBroadcasterDeps {
   bankruptcyPlayerIds: string[];
   newProposals: import('@argentum/shared').LoanProposal[];
   expiredProposalIds: string[];
+  auctionResult: AuctionProcessorResult;
   leaderboard: PlayerScore[];
 }
 
@@ -71,6 +73,7 @@ export function buildTickDelta(
       balance_sheet: { ...bs },
       new_loan_default_ids: playerDefaulted,
       new_loan_repayment_ids: playerRepaid,
+      new_loans: deps.auctionResult.newLoansByPlayer.get(player.id) ?? [],
       reputation_delta: playerDefaulted.length > 0 ? -2 * playerDefaulted.length : 0,
       deposit_balances: depositBalances,
     };
@@ -81,6 +84,12 @@ export function buildTickDelta(
     expired_proposal_ids: deps.expiredProposalIds,
   };
 
+  const auctionUpdates: AuctionUpdate = {
+    new_auctions: deps.auctionResult.newAuctions,
+    closed_auction_ids: deps.auctionResult.closedAuctionIds,
+    bid_updates: deps.auctionResult.bidUpdates,
+  };
+
   return {
     tick,
     clock: { ...state.clock },
@@ -89,6 +98,7 @@ export function buildTickDelta(
     resolved_event_ids: deps.resolvedEventIds,
     player_updates: playerUpdates,
     loan_proposal_updates: loanProposalUpdates,
+    auction_updates: auctionUpdates,
     leaderboard: deps.leaderboard,
   };
 }

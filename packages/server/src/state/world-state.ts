@@ -1,7 +1,9 @@
 import type {
   Town, Region, WorldEvent, TradeRoute,
-  Loan, Deposit, SectorInvestment, BalanceSheet,
-  LoanProposal, Player, BankingLicense, PlayerScore, WorldClock,
+  Loan, Deposit, BalanceSheet,
+  LoanProposal, LoanAuction, Player, BankingLicense, PlayerScore, WorldClock,
+  AutoBidRule,
+  Company, CompanyAsset, CompanyRelation,
 } from '@argentum/shared';
 
 export interface EconomicCycle {
@@ -39,6 +41,13 @@ export class WorldState {
   events: Map<string, WorldEvent> = new Map();
   eventCooldowns: EventCooldowns = {};
   loanProposals: Map<string, LoanProposal> = new Map();
+  auctions: Map<string, LoanAuction> = new Map();
+
+  // Company state (non-player economic actors)
+  companies: Map<string, Company> = new Map();
+  companyAssets: Map<string, CompanyAsset> = new Map();
+  companyRelations: Map<string, CompanyRelation> = new Map(); // key: `${companyId}:${playerId}`
+  companyTownIndex: Map<string, string[]> = new Map();        // townId -> companyIds
 
   // Player state
   players: Map<string, Player> = new Map();
@@ -50,8 +59,8 @@ export class WorldState {
   deposits: Map<string, Deposit> = new Map();
   playerDeposits: Map<string, string[]> = new Map();        // playerId -> depositIds
   townDeposits: Map<string, string[]> = new Map();          // townId -> depositIds
-  investments: Map<string, SectorInvestment> = new Map();
   scores: Map<string, PlayerScore> = new Map();
+  autoBidRules: Map<string, AutoBidRule> = new Map();
 
   // Previous tick snapshot for delta computation
   prevTownOutputs: Map<string, number> = new Map();
@@ -136,6 +145,35 @@ export class WorldState {
     return result;
   }
 
+  /** Returns the relation score between a company and a player (0 if unknown) */
+  getRelation(companyId: string, playerId: string): CompanyRelation {
+    return this.companyRelations.get(`${companyId}:${playerId}`) ?? {
+      company_id: companyId,
+      player_id: playerId,
+      score: 0,
+      last_interaction_tick: 0,
+    };
+  }
+
+  /** Upsert a company–player relation */
+  setRelation(relation: CompanyRelation): void {
+    this.companyRelations.set(`${relation.company_id}:${relation.player_id}`, relation);
+  }
+
+  /** Returns all active companies in a town */
+  getActiveCompaniesForTown(townId: string): Company[] {
+    const ids = this.companyTownIndex.get(townId) ?? [];
+    return ids
+      .map(id => this.companies.get(id))
+      .filter((c): c is Company => c !== undefined && c.status !== 'bankrupt');
+  }
+
+  /** Sum of annual_revenue across all active companies in a town */
+  getTownCompanyRevenue(townId: string): number {
+    return this.getActiveCompaniesForTown(townId)
+      .reduce((sum, c) => sum + c.annual_revenue, 0);
+  }
+
   /** Add a license to both player and town indexes */
   addLicense(license: BankingLicense): void {
     const playerList = this.licenses.get(license.player_id) ?? [];
@@ -176,8 +214,48 @@ export class WorldState {
     }
   }
 
+  /** Add a company and register it in the town index */
+  addCompany(company: Company): void {
+    this.companies.set(company.id, company);
+    const townList = this.companyTownIndex.get(company.town_id) ?? [];
+    if (!townList.includes(company.id)) {
+      townList.push(company.id);
+      this.companyTownIndex.set(company.town_id, townList);
+    }
+  }
+
   /** Get all non-bankrupt players */
   getActivePlayers(): Player[] {
     return Array.from(this.players.values()).filter(p => !p.is_bankrupt);
+  }
+
+  /**
+   * Replace all mutable game state in-place from a freshly loaded WorldState.
+   * Preserves object identity so existing references (engine, socket server) stay valid.
+   */
+  replaceWith(fresh: WorldState): void {
+    this.clock = fresh.clock;
+    this.cycle = fresh.cycle;
+    this.towns = fresh.towns;
+    this.prevTownOutputs = fresh.prevTownOutputs;
+    this.events = fresh.events;
+    this.eventCooldowns = fresh.eventCooldowns;
+    this.loanProposals = fresh.loanProposals;
+    this.auctions = fresh.auctions;
+    this.companies = fresh.companies;
+    this.companyAssets = fresh.companyAssets;
+    this.companyRelations = fresh.companyRelations;
+    this.companyTownIndex = fresh.companyTownIndex;
+    this.players = fresh.players;
+    this.balanceSheets = fresh.balanceSheets;
+    this.licenses = fresh.licenses;
+    this.townLicenses = fresh.townLicenses;
+    this.loans = fresh.loans;
+    this.playerLoans = fresh.playerLoans;
+    this.deposits = fresh.deposits;
+    this.playerDeposits = fresh.playerDeposits;
+    this.townDeposits = fresh.townDeposits;
+    this.scores = fresh.scores;
+    this.autoBidRules = fresh.autoBidRules;
   }
 }

@@ -94,7 +94,6 @@ export function createAuthRouter(state: WorldState) {
         player_id,
         cash: STARTING_CASH,
         total_loan_book: 0,
-        total_investments: 0,
         total_deposits_owed: 0,
         total_interest_accrued: 0,
         equity: STARTING_CASH,

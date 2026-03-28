@@ -38,7 +38,6 @@ export function checkBankruptcy(state: WorldState): BankruptcyEvent[] {
       // Set balance sheet to zero
       bs.cash = 0;
       bs.total_loan_book = 0;
-      bs.total_investments = 0;
       bs.total_deposits_owed = 0;
       bs.total_interest_accrued = 0;
       bs.equity = 0;

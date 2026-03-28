@@ -42,11 +42,3 @@ export const PurchaseLicenseSchema = z.object({
   town_id: z.string(),
 });
 
-export const SectorInvestSchema = z.object({
-  town_id: z.string(),
-  sector_type: z.enum(['military', 'heavy_industry', 'construction', 'commerce', 'maritime', 'agriculture']),
-  amount: z.number().min(100),
-});
-
-/** @deprecated use SectorInvestSchema */
-export const InfrastructureInvestSchema = SectorInvestSchema;

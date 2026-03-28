@@ -1,6 +1,6 @@
 import type { TickDelta, WorldSnapshot } from './tick.js';
 import type { WorldEvent, Town } from './world.js';
-import type { Loan, Deposit, LoanProposal, BalanceSheet } from './banking.js';
+import type { Loan, Deposit, LoanProposal, BalanceSheet, LoanAuction, AuctionBid, AuctionStatus } from './banking.js';
 import type { Player, BankingLicense } from './player.js';
 
 export interface BalanceHistoryPoint {
@@ -21,6 +21,8 @@ export interface PlayerSnapshot extends WorldSnapshot {
   loans: Loan[];
   deposits: Deposit[];
   balance_history: BalanceHistoryPoint[];
+  auctions: LoanAuction[];        // Open auctions in player's licensed towns
+  town_total_deposits: Record<string, number>;  // townId -> total deposits across all banks
 }
 
 // Server → Client
@@ -32,6 +34,11 @@ export interface ServerToClientEvents {
   'player:bankrupt': (data: { player_id: string; bank_name: string }) => void;
   'event:occurred': (event: WorldEvent) => void;
   'town:updated': (town: Town) => void;
+  // Auction events (broadcast to licensed players in the auction's town)
+  'auction:new': (auction: LoanAuction) => void;
+  'auction:bid': (data: { auction_id: string; bids: AuctionBid[] }) => void;
+  'auction:closed': (data: { auction_id: string; status: AuctionStatus; winning_bid?: AuctionBid; loan_id?: string }) => void;
+  'game:reset': (data: Record<string, never>) => void;
 }
 
 // Client → Server
@@ -53,6 +60,10 @@ export interface ClientToServerEvents {
   'lending:set-allocation': (
     data: { town_id: string; capital: number; rate: number },
     callback: AckCallback
+  ) => void;
+  'auction:bid': (
+    data: { auction_id: string; offered_rate: number },
+    callback: AckCallback<{ bid_accepted: boolean }>
   ) => void;
 }
 

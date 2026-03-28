@@ -1,5 +1,5 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -8,17 +8,94 @@ import { connectSocket } from '../../lib/socket';
 import { useSocket } from '../../hooks/useSocket';
 import { useWorldStore } from '../../store/world-store';
 import { usePlayerStore } from '../../store/player-store';
-import { useUiStore } from '../../store/ui-store';
+import { api } from '../../lib/api';
 
 const NAV_ITEMS = [
   { href: '/dashboard',    label: 'Balance Sheet',  icon: '⚖' },
   { href: '/world-map',    label: 'World Map',      icon: '🗺' },
   { href: '/loans',        label: 'Loan Queue',     icon: '📜' },
   { href: '/licenses',     label: 'License Market', icon: '🏛' },
-  { href: '/investments',  label: 'Investments',    icon: '🔨' },
+  { href: '/companies',    label: 'Companies',      icon: '🏢' },
   { href: '/events',       label: 'Event Feed',     icon: '📰' },
   { href: '/leaderboard',  label: 'Leaderboard',    icon: '🏆' },
 ];
+
+const SPEEDS = [0.25, 0.5, 1, 2, 5, 10] as const;
+
+function DevPanel() {
+  const [status, setStatus] = useState<{ paused: boolean; speedMultiplier: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    api.dev.status().then(setStatus).catch(() => {});
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setBusy(false);
+  };
+
+  const handleReset = () => {
+    if (!window.confirm('Reset the entire game? All towns, players, loans and licenses will be wiped.')) return;
+    run(() => api.dev.reset());
+  };
+
+  return (
+    <div className="border-t border-amber-900 border-opacity-40 p-3 bg-amber-950 bg-opacity-20">
+      <p className="text-xs font-semibold text-amber-600 mb-2 uppercase tracking-wide">Dev Controls</p>
+
+      {/* Pause / Resume */}
+      <div className="flex gap-1 mb-2">
+        <button
+          onClick={() => run(() => status?.paused ? api.dev.resume() : api.dev.pause())}
+          disabled={busy}
+          className="flex-1 text-xs px-2 py-1 rounded bg-parch-300 hover:bg-parch-400 text-ink-800 disabled:opacity-40"
+        >
+          {status?.paused ? '▶ Resume' : '⏸ Pause'}
+        </button>
+      </div>
+
+      {/* Speed buttons */}
+      <div className="flex flex-wrap gap-1 mb-2">
+        {SPEEDS.map(s => (
+          <button
+            key={s}
+            onClick={() => run(() => api.dev.setSpeed(s))}
+            disabled={busy}
+            className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+              status?.speedMultiplier === s
+                ? 'bg-amber-600 border-amber-500 text-parch-50'
+                : 'border-parch-400 text-ink-700 hover:bg-parch-300'
+            }`}
+          >
+            {s}×
+          </button>
+        ))}
+      </div>
+
+      {/* Reset */}
+      <button
+        onClick={handleReset}
+        disabled={busy}
+        className="w-full text-xs px-2 py-1 rounded border border-danger-400 text-danger-400 hover:bg-danger-500 hover:text-parch-50 transition-colors disabled:opacity-40"
+      >
+        {busy ? 'Resetting…' : 'Reset game'}
+      </button>
+
+      {error && <p className="text-xs text-danger-400 mt-1 truncate" title={error}>{error}</p>}
+    </div>
+  );
+}
 
 function GameShell({ children }: { children: React.ReactNode }) {
   useSocket();
@@ -26,9 +103,6 @@ function GameShell({ children }: { children: React.ReactNode }) {
   const clock = useWorldStore(s => s.clock);
   const player = usePlayerStore(s => s.player);
   const bs = usePlayerStore(s => s.balanceSheet);
-  const notifications = useUiStore(s => s.notifications);
-  const dismissNotification = useUiStore(s => s.dismissNotification);
-
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
@@ -82,6 +156,8 @@ function GameShell({ children }: { children: React.ReactNode }) {
             </p>
           </div>
         )}
+
+        <DevPanel />
       </aside>
 
       {/* Main content */}
@@ -89,22 +165,6 @@ function GameShell({ children }: { children: React.ReactNode }) {
         {children}
       </main>
 
-      {/* Notification toasts */}
-      <div className="fixed bottom-4 right-4 space-y-2 z-50 max-w-sm">
-        {notifications.slice(0, 5).map(n => (
-          <div
-            key={n.id}
-            className={`flex items-start gap-2 px-4 py-3 rounded border text-sm ${
-              n.type === 'danger'  ? 'bg-danger-500 border-danger-400 text-parch-50' :
-              n.type === 'warning' ? 'bg-gold-500 border-gold-400 text-parch-50' :
-                                     'bg-parch-50 border-parch-300 text-ink-800'
-            }`}
-          >
-            <span className="flex-1">{n.message}</span>
-            <button onClick={() => dismissNotification(n.id)} className="ml-2 opacity-70 hover:opacity-100">✕</button>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

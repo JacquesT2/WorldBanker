@@ -9,15 +9,16 @@ import {
 
 /**
  * Step 3: Update economic output for all towns.
+ * Output is now the sum of company revenues in each town, modulated by
+ * seasonal, event, and macro-cycle factors.
  * Also manages the macro economic cycle (boom/normal/contraction).
  */
 export function updateEconomy(state: WorldState): void {
-  // Advance economic cycle if phase has expired
   const tick = state.clock.current_tick;
   const cycle = state.cycle;
 
+  // Advance economic cycle if phase has expired
   if (tick - cycle.phase_tick_start >= cycle.phase_duration) {
-    // Transition to next phase
     const phases: Array<'boom' | 'normal' | 'contraction'> = ['boom', 'normal', 'contraction', 'normal'];
     const currentIdx = phases.indexOf(cycle.phase);
     const nextPhase = phases[(currentIdx + 1) % phases.length]!;
@@ -36,21 +37,22 @@ export function updateEconomy(state: WorldState): void {
     console.log(`[economy] Cycle phase: ${nextPhase} (multiplier: ${cycle.multiplier}, duration: ${cycle.phase_duration} ticks)`);
   }
 
-  // Recalculate each town's economic output
+  // Recalculate each town's economic output from company revenues
   for (const town of state.towns.values()) {
     const region = state.getRegionForTown(town.id);
     if (!region) continue;
 
     const activeEvents = state.getActiveEventsForTown(town.id);
+    const companyRevenues = state.getTownCompanyRevenue(town.id);
+
     const newOutput = calcEconomicOutput(
-      town,
+      companyRevenues,
       region.type,
       state.clock.current_season,
       activeEvents,
       cycle.multiplier,
     );
 
-    // Store previous before updating
     state.prevTownOutputs.set(town.id, town.economic_output);
     town.economic_output = newOutput;
   }

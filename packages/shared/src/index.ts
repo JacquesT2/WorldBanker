@@ -4,10 +4,13 @@ export * from './types/banking.js';
 export * from './types/player.js';
 export * from './types/tick.js';
 export * from './types/socket.js';
+export * from './types/auto-bid.js';
+export * from './types/company.js';
 
 // Constants
 export * from './constants/game.js';
 export * from './constants/economics.js';
+export * from './constants/traits.js';
 
 // Formulas
 export * from './formulas/economic-output.js';
@@ -16,6 +19,7 @@ export * from './formulas/loan-default.js';
 export * from './formulas/scoring.js';
 export * from './formulas/licensing.js';
 export * from './formulas/population.js';
+export * from './formulas/auto-bid.js';
 
 // World data
 export { REGIONS } from './world-data/regions.js';

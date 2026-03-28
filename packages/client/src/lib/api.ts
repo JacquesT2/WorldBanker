@@ -48,7 +48,7 @@ export const api = {
   loans: {
     queue: () => apiFetch<unknown[]>('/loans/queue'),
     accept: (proposalId: string, offered_rate: number) =>
-      apiFetch<{ loan_id: string }>(`/loans/${proposalId}/accept`, {
+      apiFetch<{ loan_id: string; loan: import('@argentum/shared').Loan }>(`/loans/${proposalId}/accept`, {
         method: 'POST',
         body: JSON.stringify({ offered_rate }),
       }),
@@ -71,15 +71,28 @@ export const api = {
         body: JSON.stringify({ town_id }),
       }),
   },
-  investments: {
-    mine: () => apiFetch<unknown[]>('/investments'),
-    invest: (town_id: string, sector_type: string, amount: number) =>
-      apiFetch<{ investment_id: string }>('/investments/sector', {
-        method: 'POST',
-        body: JSON.stringify({ town_id, sector_type, amount }),
-      }),
+  companies: {
+    list: () => apiFetch<unknown[]>('/companies'),
+    get: (id: string) => apiFetch<unknown>(`/companies/${id}`),
+    byTown: (townId: string) => apiFetch<unknown[]>(`/companies/town/${townId}`),
+    orphanedAssets: () => apiFetch<unknown[]>('/companies/assets/orphaned'),
   },
   leaderboard: {
     get: () => apiFetch<{ scores: unknown[]; tick: number; season: string; year: number }>('/leaderboard'),
+  },
+  autoBid: {
+    getRule: () => apiFetch<import('@argentum/shared').AutoBidRule>('/auto-bid/rule'),
+    setRule: (rule: Partial<import('@argentum/shared').AutoBidRule>) =>
+      apiFetch<import('@argentum/shared').AutoBidRule>('/auto-bid/rule', {
+        method: 'PUT',
+        body: JSON.stringify(rule),
+      }),
+  },
+  dev: {
+    status:   () => apiFetch<{ running: boolean; paused: boolean; speedMultiplier: number; tick: number }>('/dev/status'),
+    pause:    () => apiFetch<{ paused: boolean }>('/dev/pause', { method: 'POST' }),
+    resume:   () => apiFetch<{ paused: boolean }>('/dev/resume', { method: 'POST' }),
+    setSpeed: (multiplier: number) => apiFetch<{ speedMultiplier: number }>('/dev/set-speed', { method: 'POST', body: JSON.stringify({ multiplier }) }),
+    reset:    () => apiFetch<{ ok: boolean }>('/dev/reset', { method: 'POST' }),
   },
 };

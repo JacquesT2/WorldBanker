@@ -21,6 +21,9 @@ async function main(): Promise<void> {
   // Create bot players for all strategy profiles (skips existing bots)
   await seedBots(pool, state);
 
+  // Tick engine (created before routes so dev router can reference it)
+  const engine = new TickEngine(state, pool);
+
   // Create Express app
   const app = express();
   app.use(cors({
@@ -41,7 +44,7 @@ async function main(): Promise<void> {
   });
 
   // REST API
-  app.use('/api', createApiRouter(state));
+  app.use('/api', createApiRouter(state, engine));
 
   // HTTP server
   const httpServer = http.createServer(app);
@@ -49,8 +52,6 @@ async function main(): Promise<void> {
   // WebSocket server
   const io = createSocketServer(httpServer, state);
 
-  // Tick engine
-  const engine = new TickEngine(state, pool);
   engine.attachSocket(io);
   engine.start();
 

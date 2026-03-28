@@ -5,46 +5,6 @@ import { useWorldStore } from '../../../../store/world-store';
 import { usePlayerStore } from '../../../../store/player-store';
 import { api } from '../../../../lib/api';
 import TownCharts from '../../../../components/TownCharts';
-import type { SectorType } from '@argentum/shared';
-
-const SECTOR_COLORS: Record<SectorType, string> = {
-  military:       '#ef4444',
-  heavy_industry: '#f97316',
-  construction:   '#eab308',
-  commerce:       '#22c55e',
-  maritime:       '#3b82f6',
-  agriculture:    '#84cc16',
-};
-
-const SECTOR_ICONS: Record<SectorType, string> = {
-  military:       '⚔',
-  heavy_industry: '⚒',
-  construction:   '🏗',
-  commerce:       '💰',
-  maritime:       '⚓',
-  agriculture:    '🌾',
-};
-
-const SECTOR_LABELS: Record<SectorType, string> = {
-  military:       'Military',
-  heavy_industry: 'Heavy Industry',
-  construction:   'Construction',
-  commerce:       'Commerce',
-  maritime:       'Maritime',
-  agriculture:    'Agriculture',
-};
-
-const SECTOR_DESCRIPTIONS: Record<SectorType, string> = {
-  military:       'Fortifications, garrison strength, war power',
-  heavy_industry: 'Forges, mines, manufacturing capacity',
-  construction:   'Roads, civic works, housing',
-  commerce:       'Markets, banking districts, trade guilds',
-  maritime:       'Ports, naval vessels, fishing fleets',
-  agriculture:    'Farms, granaries, irrigation',
-};
-
-const ALL_SECTORS: SectorType[] = ['military', 'heavy_industry', 'construction', 'commerce', 'maritime', 'agriculture'];
-
 interface CompetingBank {
   player_id: string;
   bank_name: string;
@@ -94,9 +54,6 @@ export default function TownDetailPage() {
   if (!town) {
     return <div className="p-8 text-ink-700">Town not found.</div>;
   }
-
-  // Compute military power score (0–100)
-  const militaryPower = Math.round((town.sectors.military / 5) * 100);
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -160,10 +117,6 @@ export default function TownDetailPage() {
               <span className="text-ink-700">Economic Output</span>
               <span className="font-mono text-gold-400">{town.economic_output.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-ink-700">Military Power</span>
-              <span className="font-mono text-danger-400">{militaryPower}/100</span>
-            </div>
           </div>
 
           <h4 className="text-ink-700 text-xs mt-3 mb-2 uppercase tracking-wide">Resources</h4>
@@ -187,90 +140,6 @@ export default function TownDetailPage() {
           </div>
         </div>
 
-        {/* War potential hint */}
-        <div className="bg-parch-50 border border-parch-300 rounded-lg p-4 flex flex-col">
-          <h3 className="text-gold-400 font-semibold mb-3 text-sm uppercase tracking-wide">Military Readiness</h3>
-          {/* power bar */}
-          <div className="mb-3">
-            <div className="flex justify-between text-xs text-ink-700 mb-1">
-              <span>Power rating</span>
-              <span className="font-mono text-danger-400">{militaryPower}/100</span>
-            </div>
-            <div className="h-3 bg-parch-300 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{ width: `${militaryPower}%`, background: militaryPower > 60 ? '#ef4444' : militaryPower > 30 ? '#f97316' : '#eab308' }}
-              />
-            </div>
-          </div>
-          <div className="text-xs text-ink-700 space-y-1 flex-1">
-            <p>Military Lv {town.sectors.military}/5</p>
-            {town.sectors.military >= 4 && <p className="text-danger-400 font-medium">⚔ Formidable garrison — war capable</p>}
-            {town.sectors.military === 3 && <p className="text-gold-400">🛡 Well-defended — can resist attack</p>}
-            {town.sectors.military <= 2 && <p className="text-ink-700">Vulnerable — low military development</p>}
-            <p className="mt-2 text-ink-600">Invest in Military to unlock war mechanics and reduce loan defaults from raids.</p>
-          </div>
-          {isLicensed && (
-            <button
-              onClick={() => router.push('/world-map')}
-              className="mt-3 text-xs px-3 py-1.5 bg-danger-500 bg-opacity-90 text-white rounded hover:bg-opacity-100 font-medium"
-            >
-              Fund Military via Map →
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Sector Cards ──────────────────────────────────────────── */}
-      <div className="mb-5">
-        <h3 className="text-gold-400 font-semibold mb-3 text-sm uppercase tracking-wide">Sector Development</h3>
-        <div className="grid grid-cols-3 gap-3">
-          {ALL_SECTORS.map(sector => {
-            const level = town.sectors[sector];
-            const pct   = (level / 5) * 100;
-            const color = SECTOR_COLORS[sector];
-            return (
-              <div
-                key={sector}
-                className="bg-parch-50 border border-parch-300 rounded-lg p-3 hover:border-current transition-colors"
-                style={{ '--sector-color': color } as React.CSSProperties}
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xl">{SECTOR_ICONS[sector]}</span>
-                  <div>
-                    <p className="text-xs font-bold text-ink-800">{SECTOR_LABELS[sector]}</p>
-                    <p className="text-xs text-ink-700">Level {level}/5</p>
-                  </div>
-                </div>
-
-                {/* level bar */}
-                <div className="h-2 bg-parch-200 rounded-full overflow-hidden mb-1">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{ width: `${pct}%`, background: color }}
-                  />
-                </div>
-
-                {/* pip dots */}
-                <div className="flex gap-0.5 mb-2">
-                  {Array.from({ length: 5 }, (_, i) => (
-                    <div
-                      key={i}
-                      className="flex-1 h-1 rounded-full"
-                      style={{ background: i < level ? color : '#d4c090' }}
-                    />
-                  ))}
-                </div>
-
-                <p className="text-xs text-ink-700 leading-snug">{SECTOR_DESCRIPTIONS[sector]}</p>
-
-                {level >= 5 && (
-                  <p className="text-xs mt-1 font-medium" style={{ color }}>MAX</p>
-                )}
-              </div>
-            );
-          })}
-        </div>
       </div>
 
       {/* ── Your position ─────────────────────────────────────────── */}

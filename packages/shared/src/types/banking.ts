@@ -1,20 +1,15 @@
-export type LoanStatus = 'active' | 'repaid' | 'defaulted' | 'written_off';
+import type { CompanyType } from './company.js';
 
-export type BorrowerType =
-  | 'merchant'
-  | 'guild'
-  | 'noble'
-  | 'farmer'
-  | 'craftsman'
-  | 'shipwright'
-  | 'miner';
+export type LoanStatus = 'active' | 'repaid' | 'defaulted' | 'written_off';
 
 export interface Loan {
   id: string;
   player_id: string;
   town_id: string;
+  company_id: string;
+  /** Display name — populated from Company.name at loan creation */
   borrower_name: string;
-  borrower_type: BorrowerType;
+  company_type: CompanyType;
   principal: number;
   outstanding_balance: number;
   interest_rate: number;                  // Annual rate, e.g. 0.12 = 12%
@@ -33,10 +28,12 @@ export interface LoanProposal {
   id: string;
   world_id: string;
   town_id: string;
-  borrower_type: BorrowerType;
+  company_id: string;
+  /** Display name from Company.name */
   borrower_name: string;
+  company_type: CompanyType;
   requested_amount: number;
-  max_acceptable_rate: number;            // Borrower's ceiling rate
+  max_acceptable_rate: number;            // Company's ceiling rate
   term_ticks: number;
   base_default_probability: number;       // Per-tick base before adjustments
   collateral_value: number;
@@ -57,28 +54,39 @@ export interface Deposit {
   last_interest_accrual_tick: number;
 }
 
-export type SectorInvestmentType = 'military' | 'heavy_industry' | 'construction' | 'commerce' | 'maritime' | 'agriculture';
-
-export interface SectorInvestment {
-  id: string;
+export interface AuctionBid {
   player_id: string;
-  town_id: string;
-  sector_type: SectorInvestmentType;
-  amount_invested: number;
-  completion_tick: number;
-  completed: boolean;
-  annual_return_rate: number;
-  reputation_bonus: number;
+  bank_name: string;
+  offered_rate: number;
+  bid_tick: number;
 }
 
-/** @deprecated use SectorInvestment */
-export type InfrastructureInvestment = SectorInvestment;
+export type AuctionStatus = 'open' | 'awarded' | 'no_bids';
+
+export interface LoanAuction {
+  id: string;
+  world_id: string;
+  town_id: string;
+  company_id: string;
+  borrower_name: string;
+  company_type: CompanyType;
+  requested_amount: number;
+  max_acceptable_rate: number;    // Company's ceiling — bids above this are rejected
+  term_ticks: number;
+  base_default_probability: number;
+  collateral_value: number;
+  partial_recovery_rate: number;
+  created_at_tick: number;
+  closes_at_tick: number;         // Bidding window ends here
+  bids: AuctionBid[];             // All bids placed (visible to all licensed players)
+  status: AuctionStatus;
+  winning_bid?: AuctionBid;       // Set when auction closes with bids
+}
 
 export interface BalanceSheet {
   player_id: string;
   cash: number;
   total_loan_book: number;                // Sum of outstanding_balance (active loans)
-  total_investments: number;              // Sum of infrastructure investments
   total_deposits_owed: number;            // Total citizen deposits (liability)
   total_interest_accrued: number;         // Interest owed to depositors, not yet paid
   equity: number;                         // assets - liabilities

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ReferenceLine, Cell,
@@ -8,7 +8,13 @@ import {
 import { usePlayerStore } from '../../../store/player-store';
 import { useWorldStore } from '../../../store/world-store';
 import { api } from '../../../lib/api';
-import type { LoanProposal, BalanceSheet } from '@argentum/shared';
+import { getSocket } from '../../../lib/socket';
+import type { LoanProposal, LoanAuction, BalanceSheet } from '@argentum/shared';
+import {
+  type AutoRule, type LoanLike,
+  DEFAULT_RULE,
+  lgd, netYieldPct, passesRule,
+} from '../../../lib/auto-bid';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -35,76 +41,7 @@ type ProposalSort = 'amount_desc' | 'amount_asc' | 'risk_asc' | 'risk_desc' | 'r
 type RiskFilter  = 'all' | 'low' | 'medium' | 'high';
 type TypeFilter  = 'all' | string;
 
-// ─── Automated lending types + helpers ──────────────────────────────────────
-
-interface AutoRule {
-  enabled: boolean;
-  maxRiskPctPerYear: number;   // annualised default prob ceiling, e.g. 20 (%)
-  minNetYieldPct: number;      // min (offeredRate - annualRisk) in %, e.g. 5
-  maxLoanAmount: number;       // 0 = no limit
-  maxTotalCapital: number;     // max cumulative capital to deploy per batch, 0 = no limit
-  minReserveAfter: number;     // reserve ratio floor after accepting, e.g. 0.15
-  allowedTypes: string[];      // [] = all types allowed
-  rateDiscount: number;        // fraction below borrower's max to offer, e.g. 0.01 → 1% discount
-}
-
-const DEFAULT_RULE: AutoRule = {
-  enabled: false,
-  maxRiskPctPerYear: 20,
-  minNetYieldPct: 5,
-  maxLoanAmount: 0,
-  maxTotalCapital: 0,
-  minReserveAfter: 0.15,
-  allowedTypes: [],
-  rateDiscount: 0,
-};
-
-/**
- * Loss Given Default: fraction of principal lost when borrower defaults.
- * Accounts for collateral recovery — a fully collateralised loan has LGD near 0.
- *   LGD = max(0, 1 − (collateral_value × partial_recovery_rate) / requested_amount)
- */
-function lgd(p: LoanProposal): number {
-  const recovery = (p.collateral_value * p.partial_recovery_rate) / p.requested_amount;
-  return Math.max(0, 1 - recovery);
-}
-
-/**
- * Net yield = offeredRate − (annualDefaultProb × LGD)
- * This is the risk-adjusted return after expected collateral-adjusted losses.
- */
-function netYieldPct(p: LoanProposal, offeredRate: number): number {
-  const annualDefaultProb = p.base_default_probability * 360;
-  return (offeredRate - annualDefaultProb * lgd(p)) * 100;
-}
-
-/**
- * Returns true if a proposal passes the automated lending rule.
- * deployedSoFar: capital already committed in this batch (for capital-limit check).
- */
-function proposalPassesRule(
-  p: LoanProposal,
-  rule: AutoRule,
-  bs: BalanceSheet,
-  deployedSoFar: number,
-): boolean {
-  const annualRiskPct = p.base_default_probability * 360 * 100;
-  const offeredRate   = Math.max(0.02, p.max_acceptable_rate - rule.rateDiscount);
-  const nyPct         = netYieldPct(p, offeredRate);
-
-  if (annualRiskPct > rule.maxRiskPctPerYear) return false;
-  if (nyPct < rule.minNetYieldPct) return false;
-  if (rule.maxLoanAmount > 0 && p.requested_amount > rule.maxLoanAmount) return false;
-  if (rule.allowedTypes.length > 0 && !rule.allowedTypes.includes(p.borrower_type)) return false;
-  if (rule.maxTotalCapital > 0 && deployedSoFar + p.requested_amount > rule.maxTotalCapital) return false;
-
-  // Check reserve ratio after this loan
-  const cashAfter     = bs.cash - deployedSoFar - p.requested_amount;
-  const reserveAfter  = bs.total_deposits_owed > 0 ? cashAfter / bs.total_deposits_owed : 1.0;
-  if (reserveAfter < rule.minReserveAfter) return false;
-
-  return true;
-}
+// ─── Automated lending ── types/helpers imported from lib/auto-bid ──────────
 
 // ─── Queue tab ──────────────────────────────────────────────────────────────
 
@@ -112,6 +49,7 @@ function LoanQueue() {
   const proposals      = usePlayerStore(s => s.proposals);
   const bs             = usePlayerStore(s => s.balanceSheet);
   const removeProposal = usePlayerStore(s => s.removeProposal);
+  const addLoan        = usePlayerStore(s => s.addLoan);
   const getTown        = useWorldStore(s => s.getTown);
   const getRegion      = useWorldStore(s => s.getRegion);
   const getEvents      = useWorldStore(s => s.getActiveEventsForTown);
@@ -133,6 +71,7 @@ function LoanQueue() {
       const res = await api.loans.accept(proposalId, rate);
       setMessages(m => ({ ...m, [proposalId]: `Accepted — loan ${res.loan_id.slice(0, 8)}…` }));
       removeProposal(proposalId);
+      addLoan(res.loan);
     } catch (err) {
       setMessages(m => ({ ...m, [proposalId]: (err as Error).message }));
     } finally {
@@ -149,15 +88,15 @@ function LoanQueue() {
     p => !p.accepted_by_player_id && (!clock || p.expires_at_tick > clock.current_tick)
   );
 
-  // Collect unique borrower types for filter
-  const borrowerTypes = Array.from(new Set(active.map(p => p.borrower_type))).sort();
+  // Collect unique company types for filter
+  const borrowerTypes = Array.from(new Set(active.map(p => p.company_type))).sort();
 
   const filtered = active.filter(p => {
     const riskPct = p.base_default_probability * 360 * 100;
     if (riskFilter === 'low'    && riskPct >= 12) return false;
     if (riskFilter === 'medium' && (riskPct < 12 || riskPct >= 25)) return false;
     if (riskFilter === 'high'   && riskPct < 25) return false;
-    if (typeFilter !== 'all'    && p.borrower_type !== typeFilter) return false;
+    if (typeFilter !== 'all'    && p.company_type !== typeFilter) return false;
     if (minAmount && p.requested_amount < parseFloat(minAmount)) return false;
     if (maxAmount && p.requested_amount > parseFloat(maxAmount)) return false;
     return true;
@@ -333,7 +272,7 @@ function LoanQueue() {
                     )}
                   </div>
                   <p className="text-sm text-ink-700 mt-0.5">
-                    {proposal.borrower_type} — {town?.name ?? proposal.town_id}
+                    {proposal.company_type} — {town?.name ?? proposal.town_id}
                     {region && `, ${region.name}`}
                   </p>
                 </div>
@@ -667,78 +606,36 @@ function RuleField({
 }
 
 function AutomatedLending() {
-  const proposals      = usePlayerStore(s => s.proposals);
-  const bs             = usePlayerStore(s => s.balanceSheet);
-  const removeProposal = usePlayerStore(s => s.removeProposal);
-  const clock          = useWorldStore(s => s.clock);
+  const auctions = usePlayerStore(s => s.auctions);
+  const bs       = usePlayerStore(s => s.balanceSheet);
+  const clock    = useWorldStore(s => s.clock);
 
-  const [rule, setRule] = useState<AutoRule>(DEFAULT_RULE);
-  const [autoLog, setAutoLog] = useState<string[]>([]);
-  const autoAcceptingRef = useRef(new Set<string>());
-  const isLoadedRef      = useRef(false);
+  const [rule, setRule] = useState<AutoRule>({ player_id: '', ...DEFAULT_RULE });
+  const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load rule from localStorage once on mount — never save here
+  // Load rule from server on mount
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('argentum_auto_rule');
-      if (saved) setRule({ ...DEFAULT_RULE, ...JSON.parse(saved) });
-    } catch {}
-    isLoadedRef.current = true;
+    api.autoBid.getRule().then(setRule).catch(() => {});
   }, []);
 
-  // Update a field and immediately persist — only called from user interactions
+  // Update a field, persist to server with debounce
   const updateRule = <K extends keyof AutoRule>(key: K, value: AutoRule[K]) => {
     setRule(prev => {
       const next = { ...prev, [key]: value };
-      try { localStorage.setItem('argentum_auto_rule', JSON.stringify(next)); } catch {}
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        api.autoBid.setRule(next).catch(() => {});
+      }, 500);
       return next;
     });
   };
 
-  // ── Auto-execution ──────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!rule.enabled || !bs) return;
-
-    const active = proposals.filter(
-      p => !p.accepted_by_player_id && (!clock || p.expires_at_tick > clock.current_tick)
-    );
-
-    let deployedSoFar = 0;
-    for (const p of active) {
-      if (autoAcceptingRef.current.has(p.id)) continue;
-      if (!proposalPassesRule(p, rule, bs, deployedSoFar)) continue;
-
-      const offeredRate = Math.max(0.02, p.max_acceptable_rate - rule.rateDiscount);
-      deployedSoFar += p.requested_amount;
-      autoAcceptingRef.current.add(p.id);
-
-      api.loans.accept(p.id, offeredRate)
-        .then(() => {
-          const when = clock ? `tick ${clock.current_tick}` : '';
-          setAutoLog(l => [
-            `✓ ${p.borrower_name} — ${fmt(p.requested_amount)} @ ${(offeredRate * 100).toFixed(1)}% ${when}`,
-            ...l.slice(0, 29),
-          ]);
-          removeProposal(p.id);
-        })
-        .catch(err => {
-          autoAcceptingRef.current.delete(p.id);
-          setAutoLog(l => [
-            `✗ ${p.borrower_name} — ${(err as Error).message}`,
-            ...l.slice(0, 29),
-          ]);
-        });
-    }
-  }, [proposals, rule.enabled, bs, clock]);
-
-  // setField removed — use updateRule directly
-
   // ── Derived data ────────────────────────────────────────────────────────
-  const active = proposals.filter(
-    p => !p.accepted_by_player_id && (!clock || p.expires_at_tick > clock.current_tick)
+  const active = auctions.filter(
+    a => a.status === 'open' && (!clock || a.closes_at_tick > clock.current_tick)
   );
 
-  const allTypes = Array.from(new Set(active.map(p => p.borrower_type))).sort();
+  const allTypes = Array.from(new Set(active.map(a => a.company_type))).sort();
 
   // Scatter data — Y axis is collateral-adjusted net yield, not raw rate
   const scatterData = active.map(p => {
@@ -754,21 +651,21 @@ function AutomatedLending() {
     // Determine first failing rule for tooltip
     let rejectReason: string | null = null;
     if (bs) {
-      const offered = Math.max(0.02, p.max_acceptable_rate - rule.rateDiscount);
+      const offered = Math.max(0.02, p.max_acceptable_rate - rule.rate_discount);
       const ny      = netYieldPct(p, offered);
-      if (riskPct > rule.maxRiskPctPerYear)
-        rejectReason = `Risk ${riskPct.toFixed(1)}% > ${rule.maxRiskPctPerYear}% limit`;
-      else if (ny < rule.minNetYieldPct)
-        rejectReason = `Net yield ${ny.toFixed(1)}% < ${rule.minNetYieldPct}% floor`;
-      else if (rule.maxLoanAmount > 0 && p.requested_amount > rule.maxLoanAmount)
-        rejectReason = `Amount ${fmt(p.requested_amount)} > ${fmt(rule.maxLoanAmount)} cap`;
-      else if (rule.allowedTypes.length > 0 && !rule.allowedTypes.includes(p.borrower_type))
-        rejectReason = `Type "${p.borrower_type}" not in allowlist`;
+      if (riskPct > rule.max_risk_pct_per_year)
+        rejectReason = `Risk ${riskPct.toFixed(1)}% > ${rule.max_risk_pct_per_year}% limit`;
+      else if (ny < rule.min_net_yield_pct)
+        rejectReason = `Net yield ${ny.toFixed(1)}% < ${rule.min_net_yield_pct}% floor`;
+      else if (rule.max_loan_amount > 0 && p.requested_amount > rule.max_loan_amount)
+        rejectReason = `Amount ${fmt(p.requested_amount)} > ${fmt(rule.max_loan_amount)} cap`;
+      else if (rule.allowed_types.length > 0 && !rule.allowed_types.includes(p.company_type))
+        rejectReason = `Type "${p.company_type}" not in allowlist`;
       else {
         const cashAfter    = bs.cash - p.requested_amount;
         const reserveAfter = bs.total_deposits_owed > 0 ? cashAfter / bs.total_deposits_owed : 1.0;
-        if (reserveAfter < rule.minReserveAfter)
-          rejectReason = `Reserve ${(reserveAfter * 100).toFixed(1)}% < ${(rule.minReserveAfter * 100).toFixed(0)}% floor`;
+        if (reserveAfter < rule.min_reserve_after)
+          rejectReason = `Reserve ${(reserveAfter * 100).toFixed(1)}% < ${(rule.min_reserve_after * 100).toFixed(0)}% floor`;
       }
     }
 
@@ -780,7 +677,7 @@ function AutomatedLending() {
       ratePct, lgdVal, expLossPct, collateralAdj, collateralCovPct,
       amount: p.requested_amount,
       name: p.borrower_name,
-      type: p.borrower_type,
+      type: p.company_type,
       accepted: !rejectReason,
       rejectReason,
     };
@@ -805,7 +702,7 @@ function AutomatedLending() {
   let deployed = 0;
   const matching = bs
     ? active.filter(p => {
-        if (!proposalPassesRule(p, rule, bs, deployed)) return false;
+        if (!passesRule(p, rule, bs, deployed)) return false;
         deployed += p.requested_amount;
         return true;
       })
@@ -840,13 +737,13 @@ function AutomatedLending() {
           </span>
           {rule.enabled && bs && (
             <span className="text-ink-700 text-xs ml-2">
-              — {matching.length} proposal{matching.length !== 1 ? 's' : ''} currently match · deploying {fmt(deployed)}
+              — {matching.length} auction{matching.length !== 1 ? 's' : ''} currently match · bidding {fmt(deployed)}
             </span>
           )}
         </div>
         {rule.enabled && (
           <span className="ml-auto text-xs text-ink-700">
-            Proposals are accepted automatically each tick when rules are met
+            Bids are placed automatically each tick when rules are met
           </span>
         )}
       </div>
@@ -862,10 +759,10 @@ function AutomatedLending() {
             help="Reject proposals where annualised default probability exceeds this threshold">
             <div className="flex items-center gap-2">
               <input type="range" min={1} max={60} step={1}
-                value={rule.maxRiskPctPerYear}
-                onChange={e => updateRule('maxRiskPctPerYear', Number(e.target.value))}
+                value={rule.max_risk_pct_per_year}
+                onChange={e => updateRule('max_risk_pct_per_year', Number(e.target.value))}
                 className="flex-1 accent-gold-500" />
-              <span className="w-10 text-right font-mono text-sm text-ink-800">{rule.maxRiskPctPerYear}%</span>
+              <span className="w-10 text-right font-mono text-sm text-ink-800">{rule.max_risk_pct_per_year}%</span>
             </div>
           </RuleField>
 
@@ -873,10 +770,10 @@ function AutomatedLending() {
             help="Net yield = rate − (PD × LGD). LGD is reduced by collateral, so a well-secured loan can pass even at high default risk.">
             <div className="flex items-center gap-2">
               <input type="range" min={0} max={30} step={0.5}
-                value={rule.minNetYieldPct}
-                onChange={e => updateRule('minNetYieldPct', Number(e.target.value))}
+                value={rule.min_net_yield_pct}
+                onChange={e => updateRule('min_net_yield_pct', Number(e.target.value))}
                 className="flex-1 accent-gold-500" />
-              <span className="w-10 text-right font-mono text-sm text-ink-800">{rule.minNetYieldPct}%</span>
+              <span className="w-10 text-right font-mono text-sm text-ink-800">{rule.min_net_yield_pct}%</span>
             </div>
           </RuleField>
 
@@ -884,17 +781,17 @@ function AutomatedLending() {
             help="Won't accept a loan if it would push reserve ratio below this floor">
             <div className="flex items-center gap-2">
               <input type="range" min={5} max={100} step={1}
-                value={Math.round(rule.minReserveAfter * 100)}
-                onChange={e => updateRule('minReserveAfter', Number(e.target.value) / 100)}
+                value={Math.round(rule.min_reserve_after * 100)}
+                onChange={e => updateRule('min_reserve_after', Number(e.target.value) / 100)}
                 className="flex-1 accent-gold-500" />
-              <span className="w-10 text-right font-mono text-sm text-ink-800">{(rule.minReserveAfter * 100).toFixed(0)}%</span>
+              <span className="w-10 text-right font-mono text-sm text-ink-800">{(rule.min_reserve_after * 100).toFixed(0)}%</span>
             </div>
           </RuleField>
 
           <RuleField label="Max single loan size (0 = unlimited)">
             <input type="number" min={0} step={100}
-              value={rule.maxLoanAmount}
-              onChange={e => updateRule('maxLoanAmount', Number(e.target.value))}
+              value={rule.max_loan_amount}
+              onChange={e => updateRule('max_loan_amount', Number(e.target.value))}
               placeholder="0 = no limit"
               className="w-full bg-white border border-parch-300 rounded px-2 py-1 text-sm font-mono text-ink-800" />
           </RuleField>
@@ -902,8 +799,8 @@ function AutomatedLending() {
           <RuleField label="Max total capital per batch (0 = unlimited)"
             help="Caps total capital deployed in a single batch of auto-accepts">
             <input type="number" min={0} step={500}
-              value={rule.maxTotalCapital}
-              onChange={e => updateRule('maxTotalCapital', Number(e.target.value))}
+              value={rule.max_total_capital}
+              onChange={e => updateRule('max_total_capital', Number(e.target.value))}
               placeholder="0 = no limit"
               className="w-full bg-white border border-parch-300 rounded px-2 py-1 text-sm font-mono text-ink-800" />
           </RuleField>
@@ -912,10 +809,10 @@ function AutomatedLending() {
             help="Offer this many points below the borrower's ceiling (0 = offer at their max rate)">
             <div className="flex items-center gap-2">
               <input type="range" min={0} max={10} step={0.5}
-                value={rule.rateDiscount * 100}
-                onChange={e => updateRule('rateDiscount', Number(e.target.value) / 100)}
+                value={rule.rate_discount * 100}
+                onChange={e => updateRule('rate_discount', Number(e.target.value) / 100)}
                 className="flex-1 accent-gold-500" />
-              <span className="w-10 text-right font-mono text-sm text-ink-800">{(rule.rateDiscount * 100).toFixed(1)}%</span>
+              <span className="w-10 text-right font-mono text-sm text-ink-800">{(rule.rate_discount * 100).toFixed(1)}%</span>
             </div>
           </RuleField>
 
@@ -923,11 +820,11 @@ function AutomatedLending() {
             <RuleField label="Allowed borrower types (none selected = all)">
               <div className="flex flex-wrap gap-1 mt-1">
                 {allTypes.map(t => {
-                  const on = rule.allowedTypes.includes(t);
+                  const on = rule.allowed_types.includes(t);
                   return (
                     <button key={t}
-                      onClick={() => updateRule('allowedTypes',
-                        on ? rule.allowedTypes.filter(x => x !== t) : [...rule.allowedTypes, t]
+                      onClick={() => updateRule('allowed_types',
+                        on ? rule.allowed_types.filter(x => x !== t) : [...rule.allowed_types, t]
                       )}
                       className={`text-xs px-2 py-0.5 rounded border capitalize transition-colors ${
                         on ? 'bg-gold-500 text-parch-50 border-gold-500'
@@ -947,7 +844,7 @@ function AutomatedLending() {
           <div className="flex items-start justify-between mb-1">
             <h3 className="text-gold-400 font-semibold text-sm">Risk vs Return</h3>
             <span className="text-xs text-ink-700 font-mono">
-              tick {clock?.current_tick ?? '—'} · {active.length} proposal{active.length !== 1 ? 's' : ''}
+              tick {clock?.current_tick ?? '—'} · {active.length} auction{active.length !== 1 ? 's' : ''}
             </span>
           </div>
           <div className="flex items-center gap-3 text-xs text-ink-700 mb-1">
@@ -981,11 +878,11 @@ function AutomatedLending() {
                 <ZAxis type="number" dataKey="amount" range={[30, 500]} name="Amount" />
                 <Tooltip content={<SCATTER_TOOLTIP />} cursor={{ strokeDasharray: '3 3' }} />
                 {/* Vertical: max risk ceiling */}
-                <ReferenceLine x={rule.maxRiskPctPerYear} stroke="#963020" strokeDasharray="4 2" strokeWidth={1.5}
-                  label={{ value: `risk ≤ ${rule.maxRiskPctPerYear}%`, fontSize: 9, fill: '#963020', position: 'insideTopRight' }} />
+                <ReferenceLine x={rule.max_risk_pct_per_year} stroke="#963020" strokeDasharray="4 2" strokeWidth={1.5}
+                  label={{ value: `risk ≤ ${rule.max_risk_pct_per_year}%`, fontSize: 9, fill: '#963020', position: 'insideTopRight' }} />
                 {/* Horizontal: min net yield floor — dots above this line pass yield check */}
-                <ReferenceLine y={rule.minNetYieldPct} stroke="#2a6840" strokeDasharray="4 2" strokeWidth={1.5}
-                  label={{ value: `yield ≥ ${rule.minNetYieldPct}%`, fontSize: 9, fill: '#2a6840', position: 'insideTopLeft' }} />
+                <ReferenceLine y={rule.min_net_yield_pct} stroke="#2a6840" strokeDasharray="4 2" strokeWidth={1.5}
+                  label={{ value: `yield ≥ ${rule.min_net_yield_pct}%`, fontSize: 9, fill: '#2a6840', position: 'insideTopLeft' }} />
                 {/* Zero net yield reference */}
                 <ReferenceLine y={0} stroke="#9a7018" strokeWidth={1} opacity={0.5} />
                 <Scatter data={scatterData} isAnimationActive={false}>
@@ -1028,12 +925,12 @@ function AutomatedLending() {
       <div className="bg-parch-50 border border-parch-300 rounded-lg overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2.5 bg-parch-200 text-xs">
           <span className="font-semibold text-ink-800">
-            {matching.length} proposal{matching.length !== 1 ? 's' : ''} match current rules
-            {matching.length > 0 && ` — deploying ${fmt(deployed)} capital`}
+            {matching.length} auction{matching.length !== 1 ? 's' : ''} match current rules
+            {matching.length > 0 && ` — bidding ${fmt(deployed)} capital`}
             <span className="font-normal text-ink-700 ml-2">· live at tick {clock?.current_tick ?? '—'}</span>
           </span>
           {bs && matching.length > 0 && (
-            <span className={`font-mono ${projectedReserveRatio < rule.minReserveAfter ? 'text-danger-400' : 'text-safe-400'}`}>
+            <span className={`font-mono ${projectedReserveRatio < rule.min_reserve_after ? 'text-danger-400' : 'text-safe-400'}`}>
               Reserve after: {(projectedReserveRatio * 100).toFixed(1)}%
               <span className="text-ink-700 font-normal ml-1">(now: {(bs.reserve_ratio * 100).toFixed(1)}%)</span>
             </span>
@@ -1042,34 +939,34 @@ function AutomatedLending() {
         {matching.length === 0 ? (
           <div className="px-4 py-4 text-ink-700 text-sm">
             {active.length === 0 ? (
-              <p className="text-center py-2">No proposals in the queue right now.</p>
+              <p className="text-center py-2">No open auctions right now.</p>
             ) : bs ? (
               <div>
                 <p className="text-xs font-semibold text-ink-800 mb-2">
-                  All {active.length} proposal{active.length !== 1 ? 's' : ''} filtered — breakdown:
+                  All {active.length} auction{active.length !== 1 ? 's' : ''} filtered — breakdown:
                 </p>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
                   {(() => {
                     let byRisk = 0, byYield = 0, byAmount = 0, byType = 0, byReserve = 0, byCapital = 0;
                     for (const p of active) {
                       const annualRiskPct = p.base_default_probability * 360 * 100;
-                      const offeredRate   = Math.max(0.02, p.max_acceptable_rate - rule.rateDiscount);
-                      if (annualRiskPct > rule.maxRiskPctPerYear) { byRisk++; continue; }
-                      if (netYieldPct(p, offeredRate) < rule.minNetYieldPct) { byYield++; continue; }
-                      if (rule.maxLoanAmount > 0 && p.requested_amount > rule.maxLoanAmount) { byAmount++; continue; }
-                      if (rule.allowedTypes.length > 0 && !rule.allowedTypes.includes(p.borrower_type)) { byType++; continue; }
-                      if (rule.maxTotalCapital > 0 && p.requested_amount > rule.maxTotalCapital) { byCapital++; continue; }
+                      const offeredRate   = Math.max(0.02, p.max_acceptable_rate - rule.rate_discount);
+                      if (annualRiskPct > rule.max_risk_pct_per_year) { byRisk++; continue; }
+                      if (netYieldPct(p, offeredRate) < rule.min_net_yield_pct) { byYield++; continue; }
+                      if (rule.max_loan_amount > 0 && p.requested_amount > rule.max_loan_amount) { byAmount++; continue; }
+                      if (rule.allowed_types.length > 0 && !rule.allowed_types.includes(p.company_type)) { byType++; continue; }
+                      if (rule.max_total_capital > 0 && p.requested_amount > rule.max_total_capital) { byCapital++; continue; }
                       const cashAfter    = bs.cash - p.requested_amount;
                       const reserveAfter = bs.total_deposits_owed > 0 ? cashAfter / bs.total_deposits_owed : 1.0;
-                      if (reserveAfter < rule.minReserveAfter) byReserve++;
+                      if (reserveAfter < rule.min_reserve_after) byReserve++;
                     }
                     return (
                       <>
-                        {byRisk > 0    && <p><span className="text-danger-400 font-semibold">{byRisk}×</span> risk &gt; {rule.maxRiskPctPerYear}%/yr limit</p>}
-                        {byYield > 0   && <p><span className="text-danger-400 font-semibold">{byYield}×</span> net yield &lt; {rule.minNetYieldPct}% floor</p>}
-                        {byAmount > 0  && <p><span className="text-danger-400 font-semibold">{byAmount}×</span> amount &gt; {fmt(rule.maxLoanAmount)} cap</p>}
+                        {byRisk > 0    && <p><span className="text-danger-400 font-semibold">{byRisk}×</span> risk &gt; {rule.max_risk_pct_per_year}%/yr limit</p>}
+                        {byYield > 0   && <p><span className="text-danger-400 font-semibold">{byYield}×</span> net yield &lt; {rule.min_net_yield_pct}% floor</p>}
+                        {byAmount > 0  && <p><span className="text-danger-400 font-semibold">{byAmount}×</span> amount &gt; {fmt(rule.max_loan_amount)} cap</p>}
                         {byType > 0    && <p><span className="text-danger-400 font-semibold">{byType}×</span> borrower type not in allowlist</p>}
-                        {byReserve > 0 && <p><span className="text-danger-400 font-semibold">{byReserve}×</span> would breach {(rule.minReserveAfter * 100).toFixed(0)}% reserve floor</p>}
+                        {byReserve > 0 && <p><span className="text-danger-400 font-semibold">{byReserve}×</span> would breach {(rule.min_reserve_after * 100).toFixed(0)}% reserve floor</p>}
                         {byCapital > 0 && <p><span className="text-danger-400 font-semibold">{byCapital}×</span> exceeds batch capital limit</p>}
                       </>
                     );
@@ -1097,7 +994,7 @@ function AutomatedLending() {
             <tbody>
               {matching.map(p => {
                 const annualRiskPct  = p.base_default_probability * 360 * 100;
-                const offeredRate    = Math.max(0.02, p.max_acceptable_rate - rule.rateDiscount);
+                const offeredRate    = Math.max(0.02, p.max_acceptable_rate - rule.rate_discount);
                 const lgdVal         = lgd(p);
                 const expLossPct     = annualRiskPct * lgdVal / 100 * 100;   // = annualRiskPct * lgdVal
                 const nyPct          = netYieldPct(p, offeredRate);
@@ -1107,7 +1004,7 @@ function AutomatedLending() {
                   <tr key={p.id} className="border-t border-parch-200 hover:bg-parch-100 text-xs">
                     <td className="px-3 py-2 font-medium text-sm">
                       {p.borrower_name}
-                      <span className="text-ink-700 capitalize ml-1 font-normal">({p.borrower_type})</span>
+                      <span className="text-ink-700 capitalize ml-1 font-normal">({p.company_type})</span>
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-gold-400">{fmt(p.requested_amount)}</td>
                     <td className="px-3 py-2 text-right font-mono font-semibold">{(offeredRate * 100).toFixed(1)}%</td>
@@ -1135,19 +1032,259 @@ function AutomatedLending() {
         )}
       </div>
 
-      {/* Auto-accept log */}
-      {autoLog.length > 0 && (
-        <div className="bg-parch-50 border border-parch-300 rounded-lg p-4">
-          <h3 className="text-gold-400 font-semibold text-sm mb-2">Activity Log</h3>
-          <div className="space-y-0.5 max-h-40 overflow-y-auto">
-            {autoLog.map((entry, i) => (
-              <p key={i} className={`text-xs font-mono ${entry.startsWith('✓') ? 'text-safe-400' : 'text-danger-400'}`}>
-                {entry}
-              </p>
-            ))}
+    </div>
+  );
+}
+
+// ─── Auction room ─────────────────────────────────────────────────────────────
+
+function AuctionRoom() {
+  const auctions  = usePlayerStore(s => s.auctions);
+  const player    = usePlayerStore(s => s.player);
+  const bs        = usePlayerStore(s => s.balanceSheet);
+  const licenses  = usePlayerStore(s => s.licenses);
+  const getTown   = useWorldStore(s => s.getTown);
+  const getRegion = useWorldStore(s => s.getRegion);
+  const getEvents = useWorldStore(s => s.getActiveEventsForTown);
+  const clock     = useWorldStore(s => s.clock);
+
+  const [bidRates, setBidRates]   = useState<Record<string, string>>({});
+  const [bidStatus, setBidStatus] = useState<Record<string, string>>({});
+  const [loading, setLoading]     = useState<string | null>(null);
+
+  const playerId = player?.id;
+  const open = auctions.filter(a => a.status === 'open');
+
+  const handleBid = useCallback(async (auctionId: string, auction: LoanAuction) => {
+    const rateStr = bidRates[auctionId];
+    const rate = rateStr ? parseFloat(rateStr) / 100 : auction.max_acceptable_rate;
+    if (isNaN(rate) || rate <= 0) {
+      setBidStatus(s => ({ ...s, [auctionId]: 'Invalid rate' }));
+      return;
+    }
+    if (rate > auction.max_acceptable_rate) {
+      setBidStatus(s => ({ ...s, [auctionId]: `Max rate is ${(auction.max_acceptable_rate * 100).toFixed(1)}%` }));
+      return;
+    }
+
+    setLoading(auctionId);
+    setBidStatus(s => ({ ...s, [auctionId]: '' }));
+
+    const socket = getSocket();
+    socket.emit('auction:bid', { auction_id: auctionId, offered_rate: rate }, (res) => {
+      if (res.success) {
+        setBidStatus(s => ({ ...s, [auctionId]: `Bid placed @ ${(rate * 100).toFixed(1)}%` }));
+      } else {
+        setBidStatus(s => ({ ...s, [auctionId]: res.error ?? 'Error' }));
+      }
+      setLoading(null);
+    });
+  }, [bidRates]);
+
+  if (open.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="text-4xl mb-4 opacity-30">⚖</div>
+        <p className="text-ink-700 text-sm">No active auctions right now.</p>
+        <p className="text-ink-700 text-xs mt-1">Auctions open every few ticks in towns where you hold a license.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-ink-700">
+          <span className="text-gold-400 font-semibold">{open.length} auction{open.length !== 1 ? 's' : ''}</span> open ·
+          Lowest rate wins · Bids visible to all bidders · You may update your bid before close
+        </p>
+        {bs && (
+          <span className="text-xs font-mono text-ink-700">
+            Cash: <span className="text-gold-400 font-semibold">{fmt(bs.cash)}</span>
+          </span>
+        )}
+      </div>
+
+      {open.map(auction => {
+        const town      = getTown(auction.town_id);
+        const region    = getRegion(town?.region_id ?? '');
+        const events    = getEvents(auction.town_id);
+        const ticksLeft = clock ? Math.max(0, auction.closes_at_tick - clock.current_tick) : '?';
+        const riskPct   = auction.base_default_probability * 360 * 100;
+        const recovery  = auction.collateral_value * auction.partial_recovery_rate;
+        const lgdVal    = Math.max(0, 1 - recovery / auction.requested_amount);
+
+        const myBid     = auction.bids.find(b => b.player_id === playerId);
+        const sortedBids = [...auction.bids].sort((a, b) => a.offered_rate - b.offered_rate);
+        const winningBid = sortedBids[0];
+        const imWinning  = winningBid?.player_id === playerId;
+        const canFund    = bs && bs.cash >= auction.requested_amount;
+
+        const defaultBidPct = myBid
+          ? (myBid.offered_rate * 100).toFixed(2)
+          : (Math.max(2, auction.max_acceptable_rate * 100 - 0.5)).toFixed(2);
+
+        return (
+          <div key={auction.id}
+            className={`rounded-lg border overflow-hidden ${
+              myBid
+                ? imWinning
+                  ? 'border-safe-400 bg-safe-400 bg-opacity-5'
+                  : 'border-amber-400 bg-amber-50'
+                : 'border-parch-300 bg-parch-50'
+            }`}>
+
+            {/* Header bar */}
+            <div className={`flex items-center justify-between px-4 py-2.5 ${
+              myBid
+                ? imWinning ? 'bg-safe-400 bg-opacity-10' : 'bg-amber-100'
+                : 'bg-parch-200'
+            }`}>
+              <div className="flex items-center gap-3">
+                <span className="font-semibold text-ink-800">{auction.borrower_name}</span>
+                <span className={`text-xs px-2 py-0.5 rounded border capitalize ${riskBadge(riskPct)}`}>
+                  {auction.company_type}
+                </span>
+                <span className="text-xs text-ink-700">{town?.name ?? auction.town_id}</span>
+                {region && <span className="text-xs text-ink-700 opacity-70">{region.name}</span>}
+                {events.length > 0 && (
+                  <span className="text-xs text-amber-700">⚡ {events.length} event{events.length !== 1 ? 's' : ''}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-4 text-xs">
+                {myBid && (
+                  <span className={`font-semibold ${imWinning ? 'text-safe-400' : 'text-amber-700'}`}>
+                    {imWinning ? '▲ Leading' : '▼ Outbid'} @ {(myBid.offered_rate * 100).toFixed(2)}%
+                  </span>
+                )}
+                <span className={`font-mono font-semibold ${Number(ticksLeft) <= 2 ? 'text-danger-400' : 'text-ink-700'}`}>
+                  {ticksLeft} tick{ticksLeft !== 1 ? 's' : ''} left
+                </span>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="px-4 py-3 grid grid-cols-12 gap-4">
+
+              {/* Loan details */}
+              <div className="col-span-4 space-y-1.5">
+                <div className="grid grid-cols-2 gap-x-3 text-xs">
+                  <span className="text-ink-700">Amount</span>
+                  <span className="font-mono font-semibold text-gold-400 text-right">{fmt(auction.requested_amount)}g</span>
+
+                  <span className="text-ink-700">Max rate</span>
+                  <span className="font-mono text-right">{(auction.max_acceptable_rate * 100).toFixed(1)}%</span>
+
+                  <span className="text-ink-700">Term</span>
+                  <span className="font-mono text-right">{auction.term_ticks} ticks ({(auction.term_ticks / 90).toFixed(1)} seasons)</span>
+
+                  <span className={`text-ink-700`}>Annual risk</span>
+                  <span className={`font-mono text-right ${riskColor(riskPct)}`}>{riskPct.toFixed(1)}%/yr</span>
+
+                  <span className="text-ink-700">Collateral</span>
+                  <span className="font-mono text-right text-ink-700">{fmt(recovery)}g ({(lgdVal * 100).toFixed(0)}% LGD)</span>
+                </div>
+              </div>
+
+              {/* Current bids */}
+              <div className="col-span-4">
+                <p className="text-xs font-semibold text-ink-800 mb-1.5">
+                  Bids ({sortedBids.length})
+                  {sortedBids.length > 0 && <span className="text-ink-700 font-normal ml-1">— lowest wins</span>}
+                </p>
+                {sortedBids.length === 0 ? (
+                  <p className="text-xs text-ink-700 italic">No bids yet — be first</p>
+                ) : (
+                  <div className="space-y-1">
+                    {sortedBids.map((bid, i) => (
+                      <div key={bid.player_id}
+                        className={`flex items-center justify-between text-xs rounded px-2 py-1 ${
+                          i === 0 ? 'bg-safe-400 bg-opacity-10 border border-safe-400 border-opacity-30' : 'bg-parch-100'
+                        }`}>
+                        <div className="flex items-center gap-1.5">
+                          {i === 0 && <span className="text-safe-400 font-bold text-xs">★</span>}
+                          <span className={bid.player_id === playerId ? 'font-semibold text-gold-400' : 'text-ink-700'}>
+                            {bid.bank_name}
+                            {bid.player_id === playerId && ' (you)'}
+                          </span>
+                        </div>
+                        <span className={`font-mono font-semibold ${i === 0 ? 'text-safe-400' : 'text-ink-800'}`}>
+                          {(bid.offered_rate * 100).toFixed(2)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Bid form */}
+              <div className="col-span-4 flex flex-col justify-center">
+                {!canFund ? (
+                  <p className="text-xs text-danger-400 italic">Insufficient cash to fund this loan ({fmt(auction.requested_amount)}g required)</p>
+                ) : (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-xs text-ink-700 block mb-1">
+                        Your bid rate (%) — lower is more competitive
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0.1"
+                          max={(auction.max_acceptable_rate * 100).toFixed(1)}
+                          value={bidRates[auction.id] ?? defaultBidPct}
+                          onChange={e => setBidRates(r => ({ ...r, [auction.id]: e.target.value }))}
+                          className="flex-1 bg-white border border-parch-300 rounded px-2 py-1.5 text-sm font-mono text-ink-800 focus:border-gold-400 focus:outline-none"
+                          placeholder={defaultBidPct}
+                        />
+                        <span className="text-xs text-ink-700">%</span>
+                      </div>
+                    </div>
+
+                    {/* Quick bid buttons */}
+                    <div className="flex gap-1">
+                      {[-2, -1, 0].map(offset => {
+                        const pct = Math.max(2, Math.min(
+                          auction.max_acceptable_rate * 100,
+                          auction.max_acceptable_rate * 100 + offset
+                        ));
+                        return (
+                          <button key={offset}
+                            onClick={() => setBidRates(r => ({ ...r, [auction.id]: pct.toFixed(1) }))}
+                            className="flex-1 text-xs px-1 py-1 rounded border border-parch-300 hover:bg-parch-200 text-ink-700 transition-colors">
+                            {pct.toFixed(1)}%
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <button
+                      onClick={() => handleBid(auction.id, auction)}
+                      disabled={loading === auction.id}
+                      className="w-full py-2 text-sm font-semibold rounded transition-colors disabled:opacity-50
+                        bg-gold-500 text-parch-50 hover:bg-gold-600">
+                      {loading === auction.id
+                        ? 'Placing…'
+                        : myBid ? 'Update Bid' : 'Place Bid'}
+                    </button>
+
+                    {bidStatus[auction.id] && (
+                      <p className={`text-xs text-center ${
+                        bidStatus[auction.id].includes('placed') || bidStatus[auction.id].includes('Bid')
+                          ? 'text-safe-400' : 'text-danger-400'
+                      }`}>
+                        {bidStatus[auction.id]}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 }
@@ -1156,10 +1293,12 @@ function AutomatedLending() {
 
 export default function LoansPage() {
   const proposals = usePlayerStore(s => s.proposals);
+  const auctions  = usePlayerStore(s => s.auctions);
   const loans     = usePlayerStore(s => s.loans);
   const clock     = useWorldStore(s => s.clock);
-  const [tab, setTab] = useState<'queue' | 'portfolio' | 'automated'>('queue');
+  const [tab, setTab] = useState<'auctions' | 'queue' | 'portfolio' | 'automated'>('auctions');
 
+  const auctionCount   = auctions.filter(a => a.status === 'open').length;
   const queueCount     = proposals.filter(
     p => !p.accepted_by_player_id && (!clock || p.expires_at_tick > clock.current_tick)
   ).length;
@@ -1170,9 +1309,10 @@ export default function LoansPage() {
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-parch-300">
         {([
-          ['queue',     'Loan Queue',  queueCount],
-          ['portfolio', 'Portfolio',   portfolioCount],
-          ['automated', 'Automated',   null],
+          ['auctions',  'Auctions',   auctionCount],
+          ['queue',     'Loan Queue', queueCount],
+          ['portfolio', 'Portfolio',  portfolioCount],
+          ['automated', 'Automated',  null],
         ] as [typeof tab, string, number | null][]).map(([id, label, count]) => (
           <button key={id}
             onClick={() => setTab(id)}
@@ -1185,7 +1325,7 @@ export default function LoansPage() {
             {label}
             {count != null && count > 0 && (
               <span className={`ml-2 text-xs rounded-full px-1.5 py-0.5 ${
-                id === 'queue' ? 'bg-gold-500 text-parch-50' : 'bg-parch-300 text-ink-800'
+                id === 'auctions' ? 'bg-gold-500 text-parch-50' : 'bg-parch-300 text-ink-800'
               }`}>
                 {count}
               </span>
@@ -1194,6 +1334,7 @@ export default function LoansPage() {
         ))}
       </div>
 
+      {tab === 'auctions'  && <AuctionRoom />}
       {tab === 'queue'     && <LoanQueue />}
       {tab === 'portfolio' && <LoanPortfolio />}
       {tab === 'automated' && <AutomatedLending />}

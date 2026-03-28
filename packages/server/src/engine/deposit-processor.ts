@@ -4,6 +4,8 @@ import {
   calcDepositInterestPerTick,
   calcWithdrawalPressure,
   MIN_RESERVE_RATIO,
+  MAX_AUCTIONS_PER_TOWN,
+  AUCTION_DURATION_TICKS,
 } from '@argentum/shared';
 
 /**
@@ -11,19 +13,17 @@ import {
  * - Distribute new deposits to competing banks
  * - Accrue interest owed to depositors
  * - Apply withdrawal pressure when reserves are low
- * - Generate new loan proposals for licensed towns
+ * - Promote new loan proposals into auctions (when multiple banks compete)
  */
 export function processDeposits(state: WorldState): void {
   const tick = state.clock.current_tick;
 
-  // Process each town that has at least one licensed bank
   for (const [townId, playerIds] of state.townLicenses) {
     if (playerIds.length === 0) continue;
 
     const town = state.towns.get(townId);
     if (!town) continue;
 
-    // Build bank presence list for competition formula
     const banks = playerIds
       .filter(pid => {
         const player = state.players.get(pid);
@@ -48,7 +48,6 @@ export function processDeposits(state: WorldState): void {
     for (const { player_id, new_deposits } of distribution) {
       if (new_deposits <= 0) continue;
 
-      // Find or note that deposit record should exist
       const existingDeposit = state.getDepositsForPlayer(player_id)
         .find(d => d.town_id === townId);
 
@@ -56,8 +55,6 @@ export function processDeposits(state: WorldState): void {
         existingDeposit.balance += new_deposits;
         existingDeposit.last_inflow_tick = tick;
 
-        // Cash increases when citizens deposit — the bank receives this money
-        // (deposit is a liability, but the cash received is an asset; equity unchanged)
         const bs = state.balanceSheets.get(player_id);
         if (bs) bs.cash += new_deposits;
       }
@@ -72,7 +69,6 @@ export function processDeposits(state: WorldState): void {
       const deposit = state.getDepositsForPlayer(pid).find(d => d.town_id === townId);
       if (!deposit || deposit.balance <= 0) continue;
 
-      // Accrue interest owed
       const interestOwed = calcDepositInterestPerTick(
         deposit.balance,
         deposit.interest_rate_offered,
@@ -80,13 +76,11 @@ export function processDeposits(state: WorldState): void {
       bs.total_interest_accrued += interestOwed;
       deposit.last_interest_accrual_tick = tick;
 
-      // Pay interest out of cash (if possible)
       if (bs.cash >= interestOwed) {
         bs.cash -= interestOwed;
         bs.total_interest_accrued -= interestOwed;
       }
 
-      // Withdrawal pressure when reserves are low
       const reserveRatio = bs.total_deposits_owed > 0
         ? bs.cash / bs.total_deposits_owed
         : 1.0;
@@ -108,44 +102,55 @@ export function processDeposits(state: WorldState): void {
     }
   }
 
-  // Generate new loan proposals for licensed towns (probabilistically)
-  generateProposals(state);
+  // Promote company loan proposals into auctions when multiple banks are present
+  promoteProposalsToAuctions(state);
 }
 
-function generateProposals(state: WorldState): void {
+/**
+ * Convert eligible loan proposals into auctions.
+ * If a town has multiple licensed banks, proposals become competitive auctions.
+ * If only one bank, the proposal stays as a direct proposal.
+ */
+function promoteProposalsToAuctions(state: WorldState): void {
   const tick = state.clock.current_tick;
-  const { MAX_PROPOSALS_PER_TOWN_PER_TICK } = require('@argentum/shared');
-  const { generateProposalForTown } = require('./loan-processor');
 
-  for (const [townId, playerIds] of state.townLicenses) {
-    if (playerIds.length === 0) continue;
+  for (const proposal of state.loanProposals.values()) {
+    if (proposal.accepted_by_player_id) continue;
 
-    const town = state.towns.get(townId);
-    if (!town) continue;
+    const licensedPlayers = state.getLicensedPlayers(proposal.town_id);
+    const activePlayers = licensedPlayers.filter(pid => {
+      const p = state.players.get(pid);
+      return p && !p.is_bankrupt;
+    });
 
-    // Count active proposals for this town
-    const activeCount = Array.from(state.loanProposals.values()).filter(
-      p => p.town_id === townId && !p.accepted_by_player_id && p.expires_at_tick > tick
+    // Only promote to auction if multiple banks compete
+    if (activePlayers.length < 2) continue;
+
+    // Don't exceed per-town auction cap
+    const openCount = Array.from(state.auctions.values()).filter(
+      a => a.town_id === proposal.town_id && a.status === 'open'
     ).length;
+    if (openCount >= MAX_AUCTIONS_PER_TOWN) continue;
 
-    if (activeCount >= MAX_PROPOSALS_PER_TOWN_PER_TICK * 4) continue; // Max 8 queued per town
-
-    // Probability of generating a proposal scales with town output
-    const proposalChance = Math.min(0.15, town.economic_output / 1_000_000);
-    if (Math.random() < proposalChance) {
-      const proposal = generateProposalForTown(
-        state.worldId, townId, town.economic_output, tick
-      );
-      if (proposal) {
-        state.loanProposals.set(proposal.id, proposal);
-      }
-    }
-  }
-
-  // Expire old proposals
-  for (const [id, proposal] of state.loanProposals) {
-    if (!proposal.accepted_by_player_id && proposal.expires_at_tick <= tick) {
-      state.loanProposals.delete(id);
-    }
+    // Convert proposal → auction and remove from proposals
+    state.loanProposals.delete(proposal.id);
+    state.auctions.set(proposal.id, {
+      id: proposal.id,
+      world_id: proposal.world_id,
+      town_id: proposal.town_id,
+      company_id: proposal.company_id,
+      borrower_name: proposal.borrower_name,
+      company_type: proposal.company_type,
+      requested_amount: proposal.requested_amount,
+      max_acceptable_rate: proposal.max_acceptable_rate,
+      term_ticks: proposal.term_ticks,
+      base_default_probability: proposal.base_default_probability,
+      collateral_value: proposal.collateral_value,
+      partial_recovery_rate: proposal.partial_recovery_rate,
+      created_at_tick: tick,
+      closes_at_tick: tick + AUCTION_DURATION_TICKS,
+      bids: [],
+      status: 'open',
+    });
   }
 }

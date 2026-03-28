@@ -1,8 +1,7 @@
 import { pool } from '../pool';
-import { REGIONS } from '@argentum/shared';
-import { TOWNS } from '@argentum/shared';
-import { TRADE_ROUTES } from '@argentum/shared';
+import { REGIONS, TOWNS, TRADE_ROUTES } from '@argentum/shared';
 import { v4 as uuidv4 } from 'uuid';
+import { seedCompanies } from './seed-companies';
 
 async function seed(): Promise<void> {
   const client = await pool.connect();
@@ -39,27 +38,17 @@ async function seed(): Promise<void> {
     }
     console.log(`[seed] Inserted ${REGIONS.length} regions`);
 
-    // Insert towns
+    // Insert towns (economic_output starts at 0 — computed from companies each tick)
     for (const town of TOWNS) {
-      const s = town.sectors;
-      const output = town.population * town.wealth_per_capita *
-        (1 + s.military * 0.01 + s.heavy_industry * 0.05 + s.construction * 0.04 +
-             s.commerce * 0.06 + s.maritime * 0.07 + s.agriculture * 0.04);
-
       await client.query(
         `INSERT INTO towns
            (id, world_id, region_id, name, population, wealth_per_capita, economic_output,
-            resources,
-            sector_military, sector_heavy_industry, sector_construction,
-            sector_commerce, sector_maritime, sector_agriculture,
-            risk_factors, is_regional_capital, x_coord, y_coord)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+            resources, risk_factors, is_regional_capital, x_coord, y_coord)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [
           town.id, worldId, town.region_id, town.name,
-          town.population, town.wealth_per_capita, output,
+          town.population, town.wealth_per_capita, 0,
           town.resources,
-          s.military, s.heavy_industry, s.construction,
-          s.commerce, s.maritime, s.agriculture,
           town.risk_factors, town.is_regional_capital, town.x_coord, town.y_coord,
         ]
       );
@@ -98,6 +87,9 @@ async function seed(): Promise<void> {
        VALUES ($1, 'normal', 0, 90, 1.0)`,
       [worldId]
     );
+
+    // Seed companies (must come after towns are inserted)
+    await seedCompanies(client, worldId);
 
     await client.query('COMMIT');
     console.log(`[seed] World "Valdris" seeded successfully!`);

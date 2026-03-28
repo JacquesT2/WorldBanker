@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 import type {
   Player, BalanceSheet, BankingLicense, Loan, Deposit,
-  LoanProposal, PlayerScore,
+  LoanProposal, LoanAuction, AuctionBid, PlayerScore,
 } from '@argentum/shared';
 import type { TickDelta } from '@argentum/shared';
 
@@ -30,9 +30,11 @@ interface PlayerStore {
   loans: Loan[];
   deposits: Deposit[];
   proposals: LoanProposal[];
+  auctions: LoanAuction[];
   leaderboard: PlayerScore[];
   history: BalanceSheetSnapshot[];
   townDepositHistory: Record<string, TownDepositSnapshot[]>;  // town_id -> snapshots
+  townTotalDeposits: Record<string, number>;  // town_id -> total deposits across all banks
 
   // Actions
   hydrate: (data: {
@@ -42,12 +44,16 @@ interface PlayerStore {
     loans: Loan[];
     deposits: Deposit[];
     proposals: LoanProposal[];
+    auctions: LoanAuction[];
     leaderboard: PlayerScore[];
     balanceHistory: BalanceSheetSnapshot[];
+    townTotalDeposits: Record<string, number>;
   }) => void;
   applyDelta: (delta: TickDelta) => void;
   removeProposal: (id: string) => void;
   addLoan: (loan: Loan) => void;
+  applyAuctionBid: (auctionId: string, bids: AuctionBid[]) => void;
+  closeAuction: (auctionId: string) => void;
 }
 
 export const usePlayerStore = create<PlayerStore>((set, get) => ({
@@ -57,19 +63,22 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   loans: [],
   deposits: [],
   proposals: [],
+  auctions: [],
   leaderboard: [],
   history: [],
   townDepositHistory: {},
+  townTotalDeposits: {},
 
-  hydrate: ({ player, balanceSheet, licenses, loans, deposits, proposals, leaderboard, balanceHistory }) => {
+  hydrate: ({ player, balanceSheet, licenses, loans, deposits, proposals, auctions, leaderboard, balanceHistory, townTotalDeposits }) => {
     const townDepositHistory: Record<string, TownDepositSnapshot[]> = {};
     for (const d of deposits) {
       townDepositHistory[d.town_id] = [{ tick: balanceHistory.at(-1)?.tick ?? 0, balance: d.balance }];
     }
     set({
-      player, balanceSheet, licenses, loans, deposits, proposals, leaderboard,
+      player, balanceSheet, licenses, loans, deposits, proposals, auctions, leaderboard,
       history: balanceHistory,
       townDepositHistory,
+      townTotalDeposits,
     });
   },
 
@@ -81,8 +90,13 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       const update = delta.player_updates[playerId];
       const newLoans = new Map(state.loans.map(l => [l.id, l]));
 
-      // Remove defaulted/repaid loans
+      // Apply loan changes from this tick
       if (update) {
+        // New loans (e.g. won at auction)
+        for (const loan of update.new_loans ?? []) {
+          newLoans.set(loan.id, loan);
+        }
+        // Status changes
         for (const id of update.new_loan_default_ids) {
           const loan = newLoans.get(id);
           if (loan) newLoans.set(id, { ...loan, status: 'defaulted' });
@@ -102,6 +116,20 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       }
       for (const id of delta.loan_proposal_updates.expired_proposal_ids) {
         existingProposals.delete(id);
+      }
+
+      // Update auctions
+      const existingAuctions = new Map(state.auctions.map(a => [a.id, a]));
+      for (const a of delta.auction_updates.new_auctions) {
+        const isLicensed = state.licenses.some(l => l.town_id === a.town_id);
+        if (isLicensed) existingAuctions.set(a.id, a);
+      }
+      for (const id of delta.auction_updates.closed_auction_ids) {
+        existingAuctions.delete(id);
+      }
+      for (const { auction_id, bids } of delta.auction_updates.bid_updates) {
+        const a = existingAuctions.get(auction_id);
+        if (a) existingAuctions.set(auction_id, { ...a, bids });
       }
 
       const newBs = update?.balance_sheet ?? state.balanceSheet;
@@ -144,6 +172,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         loans: Array.from(newLoans.values()),
         deposits: newDeposits,
         proposals: Array.from(existingProposals.values()),
+        auctions: Array.from(existingAuctions.values()),
         leaderboard: delta.leaderboard,
         history: newHistory,
         townDepositHistory: newTownDepositHistory,
@@ -154,4 +183,12 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   removeProposal: (id) => set(s => ({ proposals: s.proposals.filter(p => p.id !== id) })),
 
   addLoan: (loan) => set(s => ({ loans: [...s.loans, loan] })),
+
+  applyAuctionBid: (auctionId, bids) => set(s => ({
+    auctions: s.auctions.map(a => a.id === auctionId ? { ...a, bids } : a),
+  })),
+
+  closeAuction: (auctionId) => set(s => ({
+    auctions: s.auctions.filter(a => a.id !== auctionId),
+  })),
 }));

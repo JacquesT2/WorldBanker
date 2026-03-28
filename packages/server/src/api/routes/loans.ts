@@ -5,7 +5,6 @@ import { validate, AcceptLoanSchema } from '../middleware/validate';
 import { pool } from '../../db/pool';
 import type { WorldState } from '../../state/world-state';
 import type { Loan } from '@argentum/shared';
-import { calcDefaultProbabilityPerTick } from '@argentum/shared';
 
 export function createLoansRouter(state: WorldState) {
   const router = Router();
@@ -24,11 +23,12 @@ export function createLoansRouter(state: WorldState) {
         p.expires_at_tick > tick
     );
 
-    // Enrich proposals with town and risk context
     const enriched = proposals.map(p => {
       const town = state.towns.get(p.town_id);
       const region = state.getRegionForTown(p.town_id);
       const activeEvents = state.getActiveEventsForTown(p.town_id);
+      const company = state.companies.get(p.company_id);
+      const relation = state.getRelation(p.company_id, player_id);
       return {
         ...p,
         town_name: town?.name,
@@ -39,6 +39,9 @@ export function createLoansRouter(state: WorldState) {
           ticks_remaining: e.ticks_remaining,
         })),
         region_risk: region?.base_risk_modifier,
+        company_status: company?.status,
+        company_equity: company?.equity,
+        relation_score: relation.score,
       };
     });
 
@@ -72,14 +75,12 @@ export function createLoansRouter(state: WorldState) {
       return;
     }
 
-    // Verify player has a license in this town
     const licenses = state.licenses.get(player_id) ?? [];
     if (!licenses.some(l => l.town_id === proposal.town_id)) {
       res.status(403).json({ error: 'No banking license for this town' });
       return;
     }
 
-    // Verify player can afford to fund the loan from cash
     const bs = state.balanceSheets.get(player_id);
     if (!bs) {
       res.status(500).json({ error: 'Balance sheet not found' });
@@ -87,46 +88,33 @@ export function createLoansRouter(state: WorldState) {
     }
 
     if (bs.cash < proposal.requested_amount) {
-      res.status(422).json({
-        error: 'Insufficient cash',
-        available: bs.cash,
-        required: proposal.requested_amount,
-      });
+      res.status(422).json({ error: 'Insufficient cash', available: bs.cash, required: proposal.requested_amount });
       return;
     }
 
-    // Verify rate is within borrower's acceptable range
     if (offered_rate > proposal.max_acceptable_rate) {
-      res.status(422).json({
-        error: 'Offered rate exceeds borrower\'s maximum',
-        max_acceptable_rate: proposal.max_acceptable_rate,
-      });
+      res.status(422).json({ error: 'Offered rate exceeds borrower\'s maximum', max_acceptable_rate: proposal.max_acceptable_rate });
       return;
     }
 
     const tick = state.clock.current_tick;
     const loanId = uuidv4();
-
-    const region = state.getRegionForTown(proposal.town_id);
-    const activeEvents = state.getActiveEventsForTown(proposal.town_id);
+    const company = state.companies.get(proposal.company_id);
 
     const loanData: Loan = {
       id: loanId,
       player_id,
       town_id: proposal.town_id,
+      company_id: proposal.company_id,
       borrower_name: proposal.borrower_name,
-      borrower_type: proposal.borrower_type,
+      company_type: proposal.company_type,
       principal: proposal.requested_amount,
       outstanding_balance: proposal.requested_amount,
       interest_rate: offered_rate,
       term_ticks: proposal.term_ticks,
       ticks_elapsed: 0,
       status: 'active',
-      default_probability_per_tick: calcDefaultProbabilityPerTick(
-        { borrower_type: proposal.borrower_type, ticks_elapsed: 0, term_ticks: proposal.term_ticks, interest_rate: offered_rate },
-        region?.base_risk_modifier ?? 1.0,
-        activeEvents,
-      ),
+      default_probability_per_tick: company?.base_default_probability ?? 0.001,
       collateral_value: proposal.collateral_value,
       partial_recovery_rate: proposal.partial_recovery_rate,
       created_at_tick: tick,
@@ -135,38 +123,44 @@ export function createLoansRouter(state: WorldState) {
     try {
       await pool.query(
         `INSERT INTO loans
-           (id, player_id, town_id, borrower_name, borrower_type, principal,
+           (id, player_id, town_id, company_id, borrower_name, company_type, principal,
             outstanding_balance, interest_rate, term_ticks, ticks_elapsed, status,
             default_probability_per_tick, collateral_value, partial_recovery_rate, created_at_tick)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [
-          loanId, player_id, proposal.town_id, proposal.borrower_name, proposal.borrower_type,
+          loanId, player_id, proposal.town_id,
+          proposal.company_id, proposal.borrower_name, proposal.company_type,
           proposal.requested_amount, proposal.requested_amount, offered_rate, proposal.term_ticks,
           0, 'active', loanData.default_probability_per_tick,
           proposal.collateral_value, proposal.partial_recovery_rate, tick,
         ]
       );
 
-      // Mark proposal as accepted
       await pool.query(
         'UPDATE loan_proposals SET accepted_by_player_id = $1, accepted_at_tick = $2 WHERE id = $3',
         [player_id, tick, proposalId]
       );
 
-      // Deduct cash
       bs.cash -= proposal.requested_amount;
-      await pool.query(
-        'UPDATE balance_sheets SET cash = $1 WHERE player_id = $2',
-        [bs.cash, player_id]
-      );
+      await pool.query('UPDATE balance_sheets SET cash = $1 WHERE player_id = $2', [bs.cash, player_id]);
 
-      // Update hot state
+      // Update company debt and relation
+      if (company) {
+        company.total_debt += proposal.requested_amount;
+        const rel = state.getRelation(company.id, player_id);
+        state.setRelation({
+          ...rel,
+          score: Math.min(100, rel.score + 5),
+          last_interaction_tick: tick,
+        });
+      }
+
       proposal.accepted_by_player_id = player_id;
       proposal.accepted_at_tick = tick;
       state.loanProposals.delete(proposalId!);
       state.addLoan(loanData);
 
-      res.status(201).json({ loan_id: loanId, outstanding_balance: loanData.outstanding_balance });
+      res.status(201).json({ loan_id: loanId, loan: loanData });
     } catch (err) {
       console.error('[loans/accept]', err);
       res.status(500).json({ error: 'Failed to accept loan' });
@@ -183,7 +177,6 @@ export function createLoansRouter(state: WorldState) {
       return;
     }
 
-    // Just remove from the proposal queue — it will also expire naturally
     state.loanProposals.delete(proposalId!);
     res.json({ success: true });
   });

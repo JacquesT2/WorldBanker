@@ -9,6 +9,9 @@ export const MIN_RESERVE_RATIO = 0.10;         // 10% of deposits must be held a
 export const LOAN_PROPOSAL_EXPIRY_TICKS = 24;  // Proposals expire after 2 minutes real-time
 export const MAX_PROPOSALS_PER_TOWN_PER_TICK = 2;
 
+export const AUCTION_DURATION_TICKS = 6;       // 30 seconds for players to place bids
+export const MAX_AUCTIONS_PER_TOWN = 6;        // Max queued open auctions per town
+
 export const DEPOSIT_GENERATION_RATE = 0.001;  // New deposits = townOutput * this per tick
 
 // Scoring weights

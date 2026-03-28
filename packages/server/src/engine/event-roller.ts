@@ -138,6 +138,27 @@ const EVENT_TEMPLATES: Record<EventType, EventTemplate> = {
     loan_default_modifier: 0.9,
     descriptions: ['A wave of migrants from a troubled region is swelling the town population.', 'Refugees from the drought-stricken east are arriving, boosting labor supply.'],
   },
+  war_declaration: {
+    duration_ticks: 90,
+    economic_output_modifier: 0.70,
+    population_modifier: 0.95,
+    loan_default_modifier: 2.2,
+    descriptions: ['War has been declared. Soldiers march and merchants flee.', 'The town mobilizes for conflict. Trade is disrupted.'],
+  },
+  siege: {
+    duration_ticks: 60,
+    economic_output_modifier: 0.45,
+    population_modifier: 0.90,
+    loan_default_modifier: 3.0,
+    descriptions: ['The town is under siege. Supply lines are cut.', 'Enemy forces have encircled the walls. Starvation looms.'],
+  },
+  military_victory: {
+    duration_ticks: 30,
+    economic_output_modifier: 1.10,
+    population_modifier: 1.00,
+    loan_default_modifier: 0.8,
+    descriptions: ['Victory! The town celebrates and merchants return.', 'The enemy was repelled. Confidence and trade are restored.'],
+  },
 };
 
 /**

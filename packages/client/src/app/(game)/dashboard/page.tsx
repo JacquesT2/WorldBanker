@@ -32,7 +32,8 @@ export default function DashboardPage() {
   const loans    = usePlayerStore(s => s.loans);
   const deps     = usePlayerStore(s => s.deposits);
   const licenses = usePlayerStore(s => s.licenses);
-  const history  = usePlayerStore(s => s.history);
+  const history           = usePlayerStore(s => s.history);
+  const townTotalDeposits = usePlayerStore(s => s.townTotalDeposits);
   const clock    = useWorldStore(s => s.clock);
   const getTown  = useWorldStore(s => s.getTown);
 
@@ -81,10 +82,9 @@ export default function DashboardPage() {
           <h3 className="text-gold-400 font-semibold mb-3">Assets</h3>
           <Row label="Cash Reserves"    value={<Gold amount={bs.cash} />} />
           <Row label="Active Loans"     value={<Gold amount={bs.total_loan_book} />} />
-          <Row label="Investments"      value={<Gold amount={bs.total_investments} />} />
           <div className="flex justify-between py-2 mt-1 font-bold">
             <span className="text-ink-800">Total Assets</span>
-            <Gold amount={bs.cash + bs.total_loan_book + bs.total_investments} />
+            <Gold amount={bs.cash + bs.total_loan_book} />
           </div>
         </div>
 
@@ -122,8 +122,8 @@ export default function DashboardPage() {
             label="Equity / Assets"
             value={
               <span className="font-mono text-ink-800">
-                {bs.total_loan_book + bs.cash + bs.total_investments > 0
-                  ? ((bs.equity / (bs.cash + bs.total_loan_book + bs.total_investments)) * 100).toFixed(1) + '%'
+                {bs.total_loan_book + bs.cash > 0
+                  ? ((bs.equity / (bs.cash + bs.total_loan_book)) * 100).toFixed(1) + '%'
                   : '—'}
               </span>
             }
@@ -132,8 +132,8 @@ export default function DashboardPage() {
             label="Loan Book / Assets"
             value={
               <span className="font-mono text-ink-800">
-                {bs.cash + bs.total_loan_book + bs.total_investments > 0
-                  ? ((bs.total_loan_book / (bs.cash + bs.total_loan_book + bs.total_investments)) * 100).toFixed(1) + '%'
+                {bs.cash + bs.total_loan_book > 0
+                  ? ((bs.total_loan_book / (bs.cash + bs.total_loan_book)) * 100).toFixed(1) + '%'
                   : '—'}
               </span>
             }
@@ -144,7 +144,7 @@ export default function DashboardPage() {
       {/* Market Coverage */}
       <div className="mt-6">
         <h3 className="text-gold-400 font-semibold mb-4">Market Coverage</h3>
-        <MarketCoverageCharts licenses={licenses} deposits={deps} getTown={getTown} />
+        <MarketCoverageCharts licenses={licenses} deposits={deps} getTown={getTown} townTotalDeposits={townTotalDeposits} />
       </div>
 
       {/* Historical Charts */}

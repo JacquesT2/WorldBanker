@@ -1,33 +1,5 @@
-import type { Town, WorldEvent, RegionType } from '../types/world.js';
+import type { WorldEvent, RegionType } from '../types/world.js';
 import type { Season } from '../types/tick.js';
-import {
-  SECTOR_MILITARY_PER_LEVEL,
-  SECTOR_HEAVY_INDUSTRY_PER_LEVEL,
-  SECTOR_CONSTRUCTION_PER_LEVEL,
-  SECTOR_COMMERCE_PER_LEVEL,
-  SECTOR_MARITIME_PER_LEVEL,
-  SECTOR_AGRICULTURE_PER_LEVEL,
-} from '../constants/economics.js';
-
-/**
- * Sector development bonus multiplier (1.0 = no bonus).
- * Max at all-5 sectors ≈ 2.35x
- */
-export function calcSectorMultiplier(town: Pick<Town, 'sectors'>): number {
-  const { military, heavy_industry, construction, commerce, maritime, agriculture } = town.sectors;
-  return (
-    1.0 +
-    military       * SECTOR_MILITARY_PER_LEVEL +
-    heavy_industry * SECTOR_HEAVY_INDUSTRY_PER_LEVEL +
-    construction   * SECTOR_CONSTRUCTION_PER_LEVEL +
-    commerce       * SECTOR_COMMERCE_PER_LEVEL +
-    maritime       * SECTOR_MARITIME_PER_LEVEL +
-    agriculture    * SECTOR_AGRICULTURE_PER_LEVEL
-  );
-}
-
-/** @deprecated use calcSectorMultiplier */
-export const calcInfraMultiplier = calcSectorMultiplier;
 
 /**
  * Season modifier for economic output.
@@ -58,17 +30,18 @@ export function calcEventMultiplier(activeEvents: Pick<WorldEvent, 'economic_out
 
 /**
  * Total economic output for a town this tick.
+ *
+ * @param companyRevenues - Sum of annual_revenue across all companies in the town.
+ *                          This is the base — companies ARE the economy.
  */
 export function calcEconomicOutput(
-  town: Pick<Town, 'population' | 'wealth_per_capita' | 'sectors'>,
+  companyRevenues: number,
   regionType: RegionType,
   season: Season,
   activeEvents: Pick<WorldEvent, 'economic_output_modifier'>[],
   cycleMultiplier = 1.0,
 ): number {
-  const base     = town.population * town.wealth_per_capita;
-  const sectors  = calcSectorMultiplier(town);
   const seasonal = calcSeasonMultiplier(regionType, season);
   const events   = calcEventMultiplier(activeEvents);
-  return base * sectors * seasonal * events * cycleMultiplier;
+  return companyRevenues * seasonal * events * cycleMultiplier;
 }

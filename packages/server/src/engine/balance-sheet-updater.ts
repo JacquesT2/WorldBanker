@@ -4,8 +4,9 @@ import { pool } from '../db/pool';
 
 /**
  * Step 8: Recompute balance sheet aggregates for all players.
- * Derives total_loan_book, total_investments, total_deposits_owed, equity, and reserve_ratio
+ * Derives total_loan_book, total_deposits_owed, equity, and reserve_ratio
  * from the current state of loans and deposits.
+ * Derives total_loan_book, total_deposits_owed, equity, and reserve_ratio.
  */
 export function updateBalanceSheets(state: WorldState): void {
   const tick = state.clock.current_tick;
@@ -20,41 +21,27 @@ export function updateBalanceSheets(state: WorldState): void {
     const activeLoans = state.getActiveLoansForPlayer(player.id);
     bs.total_loan_book = activeLoans.reduce((acc, l) => acc + l.outstanding_balance, 0);
 
-    // Total investments: infrastructure investments + license costs (both are capital assets)
-    let totalInvested = 0;
-    for (const inv of state.investments.values()) {
-      if (inv.player_id === player.id) {
-        totalInvested += inv.amount_invested;
-      }
-    }
-    for (const license of (state.licenses.get(player.id) ?? [])) {
-      totalInvested += license.cost_paid;
-    }
-    bs.total_investments = totalInvested;
-
     // Total deposits owed: sum of all deposit balances
     const deposits = state.getDepositsForPlayer(player.id);
     bs.total_deposits_owed = deposits.reduce((acc, d) => acc + d.balance, 0);
 
     // Equity: assets - liabilities
-    const totalAssets = bs.cash + bs.total_loan_book + bs.total_investments;
+    const totalAssets     = bs.cash + bs.total_loan_book;
     const totalLiabilities = bs.total_deposits_owed + bs.total_interest_accrued;
     bs.equity = totalAssets - totalLiabilities;
 
-    // Reserve ratio: cash / deposits (infinity if no deposits)
+    // Reserve ratio: cash / deposits (1.0 if no deposits)
     bs.reserve_ratio = bs.total_deposits_owed > 0
       ? bs.cash / bs.total_deposits_owed
       : 1.0;
 
     bs.last_updated_tick = tick;
 
-    // Warn if approaching minimum reserve ratio
     if (bs.total_deposits_owed > 0 && bs.reserve_ratio < MIN_RESERVE_RATIO * 1.2) {
       console.warn(`[balance-sheet] Player ${player.username} reserve ratio critical: ${(bs.reserve_ratio * 100).toFixed(1)}%`);
     }
   }
 
-  // Fire-and-forget: persist history for all non-bankrupt players
   persistHistory(state);
 }
 
@@ -75,7 +62,6 @@ function persistHistory(state: WorldState): void {
 
   if (rows.length === 0) return;
 
-  // Build parameterised bulk insert
   const values = rows.map((_, i) => {
     const base = i * 9;
     return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8},$${base+9})`;

@@ -2,9 +2,9 @@ import { Pool } from 'pg';
 import { WorldState } from './world-state';
 import type {
   Town, Region, WorldEvent, TradeRoute,
-  Loan, Deposit, SectorInvestment, BalanceSheet,
-  LoanProposal, Player, BankingLicense, PlayerScore,
-  TownSectors,
+  Loan, Deposit, BalanceSheet,
+  LoanProposal, LoanAuction, Player, BankingLicense, PlayerScore,
+  Company, CompanyAsset, CompanyRelation,
 } from '@argentum/shared';
 
 /**
@@ -49,11 +49,9 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
     id: string; name: string; region_id: string;
     population: number; wealth_per_capita: string; economic_output: string;
     resources: string[];
-    sector_military: number; sector_heavy_industry: number; sector_construction: number;
-    sector_commerce: number; sector_maritime: number; sector_agriculture: number;
     risk_factors: string[]; is_regional_capital: boolean;
     x_coord: string; y_coord: string;
-  }>('SELECT * FROM towns WHERE world_id = $1', [worldId]);
+  }>('SELECT id, name, region_id, population, wealth_per_capita, economic_output, resources, risk_factors, is_regional_capital, x_coord, y_coord FROM towns WHERE world_id = $1', [worldId]);
 
   for (const t of townRows) {
     const town: Town = {
@@ -64,14 +62,6 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
       wealth_per_capita: parseFloat(t.wealth_per_capita),
       economic_output: parseFloat(t.economic_output),
       resources: t.resources as Town['resources'],
-      sectors: {
-        military:       t.sector_military,
-        heavy_industry: t.sector_heavy_industry,
-        construction:   t.sector_construction,
-        commerce:       t.sector_commerce,
-        maritime:       t.sector_maritime,
-        agriculture:    t.sector_agriculture,
-      } as TownSectors,
       risk_factors: t.risk_factors as Town['risk_factors'],
       is_regional_capital: t.is_regional_capital,
       x_coord: parseFloat(t.x_coord),
@@ -167,6 +157,83 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
     state.eventCooldowns[cd.region_id]![cd.event_type] = cd.last_tick;
   }
 
+  // Load companies
+  const { rows: companyRows } = await pool.query<{
+    id: string; world_id: string; name: string; town_id: string;
+    company_type: string; traits: string[];
+    cash: string; annual_revenue: string; annual_expenses: string;
+    equity: string; total_debt: string;
+    loan_demand_per_tick: string; max_acceptable_rate: string;
+    base_default_probability: string;
+    status: string; founded_at_tick: number; asset_count: number;
+  }>('SELECT * FROM companies WHERE world_id = $1 AND status != $2', [worldId, 'bankrupt']);
+
+  for (const c of companyRows) {
+    const company: Company = {
+      id: c.id,
+      world_id: c.world_id,
+      name: c.name,
+      town_id: c.town_id,
+      company_type: c.company_type as Company['company_type'],
+      traits: c.traits as Company['traits'],
+      cash: parseFloat(c.cash),
+      annual_revenue: parseFloat(c.annual_revenue),
+      annual_expenses: parseFloat(c.annual_expenses),
+      equity: parseFloat(c.equity),
+      total_debt: parseFloat(c.total_debt),
+      loan_demand_per_tick: parseFloat(c.loan_demand_per_tick),
+      max_acceptable_rate: parseFloat(c.max_acceptable_rate),
+      base_default_probability: parseFloat(c.base_default_probability),
+      status: c.status as Company['status'],
+      founded_at_tick: c.founded_at_tick,
+      asset_count: c.asset_count,
+    };
+    state.addCompany(company);
+  }
+
+  // Load company assets
+  const { rows: assetRows } = await pool.query<{
+    id: string; company_id: string | null; world_id: string; town_id: string;
+    asset_type: string; name: string; value: string; condition: number;
+    annual_revenue: string; created_at_tick: number; orphaned_at_tick: number | null;
+  }>('SELECT * FROM company_assets WHERE world_id = $1', [worldId]);
+
+  for (const a of assetRows) {
+    const asset: CompanyAsset = {
+      id: a.id,
+      company_id: a.company_id ?? null,
+      world_id: a.world_id,
+      town_id: a.town_id,
+      asset_type: a.asset_type as CompanyAsset['asset_type'],
+      name: a.name,
+      value: parseFloat(a.value),
+      condition: a.condition,
+      annual_revenue: parseFloat(a.annual_revenue),
+      created_at_tick: a.created_at_tick,
+      orphaned_at_tick: a.orphaned_at_tick ?? undefined,
+    };
+    state.companyAssets.set(asset.id, asset);
+  }
+
+  // Load company relations
+  const { rows: relationRows } = await pool.query<{
+    company_id: string; player_id: string; score: string; last_interaction_tick: number;
+  }>(`
+    SELECT cr.* FROM company_relations cr
+    JOIN players p ON p.id = cr.player_id
+    WHERE p.world_id = $1
+  `, [worldId]);
+
+  for (const r of relationRows) {
+    const relation: CompanyRelation = {
+      company_id: r.company_id,
+      player_id: r.player_id,
+      score: parseFloat(r.score),
+      last_interaction_tick: r.last_interaction_tick,
+    };
+    state.setRelation(relation);
+  }
+
   // Load players
   const { rows: playerRows } = await pool.query<{
     id: string; username: string; bank_name: string;
@@ -196,7 +263,7 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
   // Load balance sheets
   const { rows: bsRows } = await pool.query<{
     player_id: string; cash: string; total_loan_book: string;
-    total_investments: string; total_deposits_owed: string;
+    total_deposits_owed: string;
     total_interest_accrued: string; equity: string;
     reserve_ratio: string; last_updated_tick: number;
   }>(`
@@ -210,7 +277,6 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
       player_id: b.player_id,
       cash: parseFloat(b.cash),
       total_loan_book: parseFloat(b.total_loan_book),
-      total_investments: parseFloat(b.total_investments),
       total_deposits_owed: parseFloat(b.total_deposits_owed),
       total_interest_accrued: parseFloat(b.total_interest_accrued),
       equity: parseFloat(b.equity),
@@ -245,7 +311,7 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
   // Load active loans
   const { rows: loanRows } = await pool.query<{
     id: string; player_id: string; town_id: string;
-    borrower_name: string; borrower_type: string;
+    company_id: string; borrower_name: string; company_type: string;
     principal: string; outstanding_balance: string; interest_rate: string;
     term_ticks: number; ticks_elapsed: number; status: string;
     default_probability_per_tick: string; collateral_value: string;
@@ -262,8 +328,9 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
       id: l.id,
       player_id: l.player_id,
       town_id: l.town_id,
+      company_id: l.company_id,
       borrower_name: l.borrower_name,
-      borrower_type: l.borrower_type as Loan['borrower_type'],
+      company_type: l.company_type as Loan['company_type'],
       principal: parseFloat(l.principal),
       outstanding_balance: parseFloat(l.outstanding_balance),
       interest_rate: parseFloat(l.interest_rate),
@@ -304,36 +371,10 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
     state.setDeposit(deposit);
   }
 
-  // Load pending sector investments
-  const { rows: investRows } = await pool.query<{
-    id: string; player_id: string; town_id: string;
-    sector_type: string; amount_invested: string; completion_tick: number;
-    completed: boolean; annual_return_rate: string; reputation_bonus: string;
-  }>(`
-    SELECT i.* FROM sector_investments i
-    JOIN players p ON p.id = i.player_id
-    WHERE p.world_id = $1 AND i.completed = false
-  `, [worldId]);
-
-  for (const inv of investRows) {
-    const investment: SectorInvestment = {
-      id: inv.id,
-      player_id: inv.player_id,
-      town_id: inv.town_id,
-      sector_type: inv.sector_type as SectorInvestment['sector_type'],
-      amount_invested: parseFloat(inv.amount_invested),
-      completion_tick: inv.completion_tick,
-      completed: inv.completed,
-      annual_return_rate: parseFloat(inv.annual_return_rate),
-      reputation_bonus: parseFloat(inv.reputation_bonus),
-    };
-    state.investments.set(investment.id, investment);
-  }
-
   // Load active loan proposals
   const { rows: proposalRows } = await pool.query<{
     id: string; world_id: string; town_id: string;
-    borrower_type: string; borrower_name: string;
+    company_id: string; borrower_name: string; company_type: string;
     requested_amount: string; max_acceptable_rate: string;
     term_ticks: number; base_default_probability: string;
     collateral_value: string; partial_recovery_rate: string;
@@ -351,8 +392,9 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
       id: pr.id,
       world_id: pr.world_id,
       town_id: pr.town_id,
-      borrower_type: pr.borrower_type as LoanProposal['borrower_type'],
+      company_id: pr.company_id,
       borrower_name: pr.borrower_name,
+      company_type: pr.company_type as LoanProposal['company_type'],
       requested_amount: parseFloat(pr.requested_amount),
       max_acceptable_rate: parseFloat(pr.max_acceptable_rate),
       term_ticks: pr.term_ticks,
@@ -394,6 +436,78 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
     state.scores.set(score.player_id, score);
   }
 
+  // Load auto-bid rules
+  const { rows: ruleRows } = await pool.query<{
+    player_id: string; enabled: boolean;
+    max_risk_pct_per_year: string; min_net_yield_pct: string;
+    max_loan_amount: number; max_total_capital: number;
+    min_reserve_after: string; allowed_types: string[]; rate_discount: string;
+  }>('SELECT * FROM player_auto_bid_rules');
+
+  for (const r of ruleRows) {
+    state.autoBidRules.set(r.player_id, {
+      player_id: r.player_id,
+      enabled: r.enabled,
+      max_risk_pct_per_year: parseFloat(r.max_risk_pct_per_year),
+      min_net_yield_pct: parseFloat(r.min_net_yield_pct),
+      max_loan_amount: r.max_loan_amount,
+      max_total_capital: r.max_total_capital,
+      min_reserve_after: parseFloat(r.min_reserve_after),
+      allowed_types: r.allowed_types,
+      rate_discount: parseFloat(r.rate_discount),
+    });
+  }
+
+  // Load open auctions (with their bids)
+  const { rows: auctionRows } = await pool.query<{
+    id: string; world_id: string; town_id: string;
+    company_id: string; borrower_name: string; company_type: string;
+    requested_amount: string; max_acceptable_rate: string;
+    term_ticks: number; base_default_probability: string;
+    collateral_value: string; partial_recovery_rate: string;
+    created_at_tick: number; closes_at_tick: number;
+  }>(
+    `SELECT * FROM loan_auctions WHERE world_id = $1 AND status = 'open' AND closes_at_tick > $2`,
+    [worldId, state.clock.current_tick]
+  );
+
+  for (const a of auctionRows) {
+    const { rows: bidRows } = await pool.query<{
+      player_id: string; bank_name: string; offered_rate: string; bid_tick: number;
+    }>(
+      `SELECT ab.player_id, p.bank_name, ab.offered_rate, ab.bid_tick
+       FROM auction_bids ab
+       JOIN players p ON p.id = ab.player_id
+       WHERE ab.auction_id = $1`,
+      [a.id]
+    );
+
+    const auction: LoanAuction = {
+      id: a.id,
+      world_id: a.world_id,
+      town_id: a.town_id,
+      company_id: a.company_id,
+      borrower_name: a.borrower_name,
+      company_type: a.company_type as LoanAuction['company_type'],
+      requested_amount: parseFloat(a.requested_amount),
+      max_acceptable_rate: parseFloat(a.max_acceptable_rate),
+      term_ticks: a.term_ticks,
+      base_default_probability: parseFloat(a.base_default_probability),
+      collateral_value: parseFloat(a.collateral_value),
+      partial_recovery_rate: parseFloat(a.partial_recovery_rate),
+      created_at_tick: a.created_at_tick,
+      closes_at_tick: a.closes_at_tick,
+      bids: bidRows.map(b => ({
+        player_id: b.player_id,
+        bank_name: b.bank_name,
+        offered_rate: parseFloat(b.offered_rate),
+        bid_tick: b.bid_tick,
+      })),
+      status: 'open',
+    };
+    state.auctions.set(auction.id, auction);
+  }
+
   // Initialize prev outputs from current state
   for (const [id, town] of state.towns) {
     state.prevTownOutputs.set(id, town.economic_output);
@@ -401,6 +515,7 @@ export async function loadWorldState(pool: Pool): Promise<WorldState> {
 
   console.log(`[state-loader] Loaded world "${worldName}" — tick ${state.clock.current_tick}`);
   console.log(`  Regions: ${state.regions.size}, Towns: ${state.towns.size}, Players: ${state.players.size}`);
+  console.log(`  Companies: ${state.companies.size}, Assets: ${state.companyAssets.size}`);
   console.log(`  Active loans: ${state.loans.size}, Deposits: ${state.deposits.size}`);
 
   return state;

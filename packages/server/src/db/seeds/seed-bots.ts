@@ -110,7 +110,6 @@ export async function seedBots(pool: Pool, state: WorldState): Promise<void> {
       player_id: playerId,
       cash: strategy.startingCash,
       total_loan_book: 0,
-      total_investments: 0,
       total_deposits_owed: 0,
       total_interest_accrued: 0,
       equity: strategy.startingCash,
